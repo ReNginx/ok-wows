@@ -266,3 +266,36 @@ msgstr "Tool Key"
 
 msgid "In Game Hotkey for Skills"
 msgstr "In-Game Hotkeys for Skills"
+
+msgid "Auto PVE Battle"
+msgstr "Auto PVE Battle"
+
+msgid "Automatically prepares the selected ship and completes a configured number of PVE battles."
+msgstr "Automatically prepares the selected ship and completes a configured number of PVE battles."
+
+msgid "Battle Count"
+msgstr "Battle Count"
+
+msgid "Number of completed battles before the task stops."
+msgstr "Number of completed battles before the task stops."
+
+msgid "Template Threshold"
+msgstr "Template Threshold"
+
+msgid "Minimum confidence required for template matching."
+msgstr "Minimum confidence required for template matching."
+
+msgid "Battle Count must be an integer greater than or equal to 1."
+msgstr "Battle Count must be an integer greater than or equal to 1."
+
+msgid "Template Threshold must be greater than 0 and less than or equal to 1."
+msgstr "Template Threshold must be greater than 0 and less than or equal to 1."
+
+msgid "Screen Recognition Test"
+msgstr "Screen Recognition Test"
+
+msgid "Continuously checks every template every 3 seconds and reports the detected screen without sending any input."
+msgstr "Continuously checks every template every 3 seconds and reports the detected screen without sending any input."
+
+msgid "Detected Scene"
+msgstr "Detected Scene"

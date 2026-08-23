@@ -79,18 +79,13 @@ config = {
         }
     },
     'windows': {  # Windows游戏请填写此设置
-        #'exe': ['StarRail.exe'],
-        # optional, if set, will search the exe only
+        'exe': ['WorldOfWarships64.exe'],  # 只检测战舰世界客户端进程
         # 'hwnd_class': 'UnrealWindow', #增加重名检查准确度
         'interaction': ['Pynput', 'PostMessage', 'Genshin', 'PyDirect','ForegroundPostMessage'], # Genshin:某些操作可以后台, 部分游戏支持 PostMessage:可后台点击, 极少游戏支持 ForegroundPostMessage:前台使用PostMessage Pynput/PyDirect:仅支持前台使用
         'capture_method': ['WGC', 'BitBlt_RenderFull', 'BitBlt'],  # Windows版本支持的话, 优先使用WGC, 否则使用BitBlt_Full. 支持的capture有 BitBlt, WGC, BitBlt_RenderFull, DXGI
         'check_hdr': False, #当用户开启AutoHDR时候提示用户, 但不禁止使用
         'force_no_hdr': False, #True=当用户开启AutoHDR时候禁止使用
         'require_bg': True # 要求使用后台截图
-    },
-    'adb': {  # 模拟器或Android设备请填写此设置, mumu模拟器使用原生截图和input,速度极快. 其他模拟器和真机使用adb,截图速度较慢
-        # optional, if set, will start the pacakge and ensure installed
-        #'packages': ['com.abc.efg1', 'com.abc.efg1']
     },
     # 'browser': {  # 浏览器游戏请填写此设置；windows、adb、browser 至少配置一个，也可以同时配置多个
     #     'url': 'https://example.com/game',
@@ -99,9 +94,9 @@ config = {
     # },
     'start_timeout': 120,  # default 60
     'supported_resolution': {
-        'ratio': '16:9', #支持的游戏分辨率
+        'ratio': '64:27', #当前游戏与标注截图均为5120x2160，对应精确比例64:27
         'min_size': (1280, 720), #支持的最低游戏分辨率
-        'resize_to': [(2560, 1440), (1920, 1080), (1600, 900), (1280, 720)], #可选, 如果非16:9自动缩放为 resize_to
+        'resize_to': [(5120, 2160), (2560, 1080)], #可选, 非64:27分辨率自动缩放为对应比例
     },
     'links': { # 关于里显示的链接, 可选
             'default': {
@@ -124,6 +119,8 @@ config = {
     'version': version, #版本
     'my_app': ['src.globals', 'Globals'], #可选. 全局单例对象, 可以存放加载的模型, 使用og.my_app调用
     'onetime_tasks': [  # 用户点击触发的任务
+        ["src.tasks.ScreenRecognitionTestTask", "ScreenRecognitionTestTask"],  # 像诊断任务一样启动后持续循环，直到用户手动停止。
+        ["src.tasks.AutoPveBattleTask", "AutoPveBattleTask"],
         ["src.tasks.MyOneTimeTask", "MyOneTimeTask"],
         ["ok", "DiagnosisTask"],
     ],

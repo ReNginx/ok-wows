@@ -266,3 +266,36 @@ msgstr "工具按键"
 
 msgid "In Game Hotkey for Skills"
 msgstr "游戏内技能快捷键"
+
+msgid "Auto PVE Battle"
+msgstr "自动 PVE 战斗"
+
+msgid "Automatically prepares the selected ship and completes a configured number of PVE battles."
+msgstr "自动准备选中的舰船，并完成指定场数的 PVE 战斗。"
+
+msgid "Battle Count"
+msgstr "战斗场数"
+
+msgid "Number of completed battles before the task stops."
+msgstr "任务停止前需要完成的战斗场数。"
+
+msgid "Template Threshold"
+msgstr "模板匹配阈值"
+
+msgid "Minimum confidence required for template matching."
+msgstr "模板匹配所需的最低置信度。"
+
+msgid "Battle Count must be an integer greater than or equal to 1."
+msgstr "战斗场数必须是大于或等于 1 的整数。"
+
+msgid "Template Threshold must be greater than 0 and less than or equal to 1."
+msgstr "模板匹配阈值必须大于 0 且小于或等于 1。"
+
+msgid "Screen Recognition Test"
+msgstr "屏幕识别测试"
+
+msgid "Continuously checks every template every 3 seconds and reports the detected screen without sending any input."
+msgstr "每 3 秒持续检查全部模板并报告当前界面，不发送任何输入。"
+
+msgid "Detected Scene"
+msgstr "识别到的界面"
