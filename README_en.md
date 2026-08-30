@@ -4,7 +4,7 @@ English | [中文](README.md)
 
 Windows client automation for *World of Warships*, built on [ok-script](https://github.com/ok-oldking/ok-script). It currently runs a **PVE battle loop**: prepare the selected ship, join the queue, pick a map waypoint, send combat inputs, and return to port after the configured number of battles.
 
-The app only attaches to `WorldOfWarships64.exe`. Templates were marked at `5120x2160` (`64:27`). The lowest supported resolution is `1280x720`.
+The app only attaches to `WorldOfWarships64.exe`. Templates are selected by window aspect ratio: `21:9`, `16:10`, or `16:9`. The lowest supported resolution is `1280x720`.
 
 ## Features
 

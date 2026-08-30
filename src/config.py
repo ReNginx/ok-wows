@@ -3,6 +3,8 @@ import os
 import numpy as np
 from ok import ConfigOption
 
+import src.resolution_assets  # 按游戏窗口比例切换 21:9、16:10、16:9 三套模板。
+
 version = "dev"
 #不需要修改version, Github Action打包会自动修改
 
@@ -94,9 +96,9 @@ config = {
     # },
     'start_timeout': 120,  # default 60
     'supported_resolution': {
-        'ratio': '64:27', #当前游戏与标注截图均为5120x2160，对应精确比例64:27
+        'ratio': '21:9', #默认按超宽屏标注比例检查；16:10 和 16:9 会在运行时改用对应模板
         'min_size': (1280, 720), #支持的最低游戏分辨率
-        'resize_to': [(5120, 2160), (2560, 1080)], #可选, 非64:27分辨率自动缩放为对应比例
+        'resize_to': [(5120, 2160), (2560, 1080)], #可选, 非已知比例时尝试缩放到超宽屏
     },
     'links': { # 关于里显示的链接, 可选
             'default': {
@@ -111,7 +113,7 @@ config = {
     'screenshots_folder': "screenshots", #截图存放目录, 每次重新启动会清空目录
     'gui_title': 'ok-script-app',  #窗口名
     'template_matching': { # 可选, 如使用OpenCV的模板匹配
-        'coco_feature_json': os.path.join('assets', 'coco_annotations.json'), #coco格式标记, 需要png图片, 在debug模式运行后, 会对进行切图仅保留被标记部分以减少图片大小
+        'coco_feature_json': os.path.join('assets', '21x9', 'coco_annotations.json'), #coco格式标记, 按窗口比例切换到 21x9 / 16x10 / 16x9 子目录
         'default_horizontal_variance': 0.002, #默认x偏移, 查找不传box的时候, 会根据coco坐标, match偏移box内的
         'default_vertical_variance': 0.002, #默认y偏移
         'default_threshold': 0.8, #默认threshold

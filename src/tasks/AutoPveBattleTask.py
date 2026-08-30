@@ -45,7 +45,7 @@ class AutoPveBattleTask(MyBaseTask):  # 定义自动完成 PVE 战斗的一次�
         return min(self.threshold, self.MAP_TEMPLATE_THRESHOLD)  # 用户设置更低阈值时仍尊重其配置。
 
     def find_one(self, feature_name=None, horizontal_variance=0, vertical_variance=0, threshold=0, **kwargs):  # 继续战斗按钮会出现在结算页和确认框的不同位置。
-        if feature_name == "Continue-Battle":  # 仅对继续战斗按钮改用全图搜索。
+        if feature_name in ("Continue-Battle", "Continue-Battle-After-Sunk"):  # 结算页和击沉后续页的继续战斗按钮都改用全图搜索。
             if horizontal_variance == 0:  # 调用方未指定水平范围时覆盖默认的局部偏移。
                 horizontal_variance = 1  # 使用整屏宽度搜索按钮。
             if vertical_variance == 0:  # 调用方未指定垂直范围时覆盖默认的局部偏移。
@@ -214,7 +214,7 @@ class AutoPveBattleTask(MyBaseTask):  # 定义自动完成 PVE 战斗的一次�
         return "left"  # 已确认离开当前战斗。
 
     def _find_leave_followup(self):  # 在 ESC 后的后续页面中查找继续战斗或确认离开按钮。
-        continue_button = self.find_one("Continue-Battle", threshold=self.threshold)  # 使用全图搜索识别可能出现在确认框中的继续战斗按钮。
+        continue_button = self.find_one("Continue-Battle-After-Sunk", threshold=self.threshold)  # 使用击沉后续页专用按钮模板做全图搜索。
         confirm_button = self.find_one("Leave-Battle-Confirm", threshold=self.threshold)  # 识别确认离开战斗按钮。
         if continue_button is None and confirm_button is None:  # 两个后续按钮都不存在时继续等待。
             return None  # 告诉等待接口当前帧还不是后续页面。

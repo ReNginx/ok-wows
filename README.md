@@ -4,7 +4,7 @@
 
 基于 [ok-script](https://github.com/ok-oldking/ok-script) 的《战舰世界》Windows 客户端自动化。当前只做 **PVE 战斗循环**：准备舰船、加入队列、开图选点、战斗输入，打满设定场数后回港。
 
-只识别 `WorldOfWarships64.exe`。标注和开发按 `5120x2160`（比例 `64:27`）完成，最低支持 `1280x720`。
+只识别 `WorldOfWarships64.exe`。模板按窗口比例自动选择：`21:9`、`16:10`、`16:9`。最低支持 `1280x720`。
 
 ## 功能
 

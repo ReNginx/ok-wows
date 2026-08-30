@@ -1,5 +1,6 @@
 import os  # 导入路径工具以判断本地忽略的原始模板目录是否存在。
 import unittest  # 导入标准库单元测试框架。
+from pathlib import Path  # 导入路径对象以读取两套 coco 分类名。
 from unittest.mock import MagicMock, call, patch  # 导入方法替身、调用记录和临时补丁工具。
 
 import cv2  # 导入 OpenCV 以读取完整标注参考截图。
@@ -8,7 +9,9 @@ from ok import Box  # 导入模板匹配结果使用的矩形框类型。
 from ok import FeatureSet  # 导入真实模板引擎以验证场景标注。
 
 from src.config import config, make_bottom_right_black  # 导入应用配置和正式截图预处理器。
+from src.resolution_assets import asset_folder_for_size, coco_json_for_size, current_template_folder, pack_for_size, ratio_is_supported, redirect_asset_target, set_pack_override, template_folder_for_size  # 导入按窗口比例选择模板的辅助函数。
 from src.tasks.AutoPveBattleTask import AutoPveBattleTask  # 导入本次新增的自动 PVE 任务。
+from src.tasks.MyBaseTask import MyBaseTask  # 导入任务基类以验证全图搜索覆盖。
 
 
 class TestAutoPveBattleTask(unittest.TestCase):  # 定义不共享全局应用状态的自动 PVE 任务测试集合。
@@ -18,6 +21,7 @@ class TestAutoPveBattleTask(unittest.TestCase):  # 定义不共享全局应用�
         executor.scene = None  # 提供任务基类初始化所需的场景属性。
         self.task = AutoPveBattleTask(executor, None)  # 使用替身执行器创建待测任务。
         self.task.config = dict(self.task.default_config)  # 使用普通字典模拟任务保存后的有效配置。
+        set_pack_override(None)  # 每个测试从自动按窗口选目录开始，避免截图页手动比例残留。
 
     def test_task_is_registered_with_safe_defaults(self):  # 验证应用能发现任务且默认配置安全。
         self.assertIn(["src.tasks.AutoPveBattleTask", "AutoPveBattleTask"], config["onetime_tasks"])  # 确认任务已注册到一次性任务列表。
@@ -68,7 +72,7 @@ class TestAutoPveBattleTask(unittest.TestCase):  # 定义不共享全局应用�
         with patch.object(self.task, "next_frame"), patch.object(self.task, "find_one", side_effect=lambda name, **kwargs: tutorial_box if name == "Map-Tutorial" else None):  # 模拟舰船铭牌没有匹配成功。
             self.assertEqual("battle", self.task._detect_scene())  # 缺少任一组合元素时应进入普通战斗分支。
 
-    @unittest.skipUnless(os.path.isdir("ok_templates"), "Local reference screenshots are not available.")  # 仅在本地原始模板目录存在时运行截图集成验证。
+    @unittest.skipUnless(os.path.isdir(os.path.join("ok_templates", "21x9")), "Local reference screenshots are not available.")  # 仅在本地原始模板目录存在时运行截图集成验证。
     def test_annotated_reference_screens_have_expected_scenes(self):  # 用完整标注截图验证全部页面都能被状态机识别。
         expected_scenes = {  # 按工作流截图编号定义预期页面状态。
             "0.png": "battle_mode",  # 零号截图是战斗模式选择页。
@@ -98,23 +102,23 @@ class TestAutoPveBattleTask(unittest.TestCase):  # 定义不共享全局应用�
 
         for image_name, expected_scene in expected_scenes.items():  # 逐张加载用户已标注的参考截图。
             with self.subTest(image=image_name):  # 在失败信息中保留具体截图名称。
-                current_frame["value"] = make_bottom_right_black(cv2.imread(f"ok_templates/{image_name}"))  # 按正式截图处理方式加载参考图片。
+                current_frame["value"] = make_bottom_right_black(cv2.imread(os.path.join("ok_templates", "21x9", image_name)))  # 按正式截图处理方式加载参考图片。
                 with patch.object(self.task, "next_frame", return_value=current_frame["value"]), patch.object(self.task, "find_one", side_effect=find_one):  # 把任务场景判断连接到真实模板查询函数。
                     self.assertEqual(expected_scene, self.task._detect_scene())  # 确认特有元素能够判断出预期页面。
 
-    @unittest.skipUnless(os.path.isdir("ok_templates"), "Local reference screenshots are not available.")  # 仅在本地原始模板目录存在时运行确认按钮验证。
+    @unittest.skipUnless(os.path.isdir(os.path.join("ok_templates", "21x9")), "Local reference screenshots are not available.")  # 仅在本地原始模板目录存在时运行确认按钮验证。
     def test_leave_confirmation_template_matches_reference_screen(self):  # 验证十三号截图中的确认离开按钮可以被真实模板识别。
         matching_config = config["template_matching"]  # 读取应用真实模板引擎参数。
         feature_set = FeatureSet(False, matching_config["coco_feature_json"], default_horizontal_variance=matching_config["default_horizontal_variance"], default_vertical_variance=matching_config["default_vertical_variance"], default_threshold=matching_config["default_threshold"])  # 创建不依赖 GUI 生命周期的真实模板引擎。
-        frame = make_bottom_right_black(cv2.imread("ok_templates/13.png"))  # 按正式截图预处理方式加载十三号参考图。
+        frame = make_bottom_right_black(cv2.imread(os.path.join("ok_templates", "21x9", "13.png")))  # 按正式截图预处理方式加载十三号参考图。
         boxes = feature_set.find_feature(frame, "Leave-Battle-Confirm", threshold=self.task.threshold, limit=1)  # 在确认页面中匹配确认离开按钮。
         self.assertTrue(boxes)  # 确认模板能够稳定找到用户标注的按钮。
 
-    @unittest.skipUnless(os.path.isfile("ok_templates/23.png"), "Continue-battle confirmation screenshot is not available.")  # 仅在本地二十三号截图存在时运行全图识别验证。
+    @unittest.skipUnless(os.path.isfile(os.path.join("ok_templates", "21x9", "23.png")), "Continue-battle confirmation screenshot is not available.")  # 仅在本地二十三号截图存在时运行全图识别验证。
     def test_continue_battle_button_matches_full_screen_on_confirmation(self):  # 验证继续战斗按钮能在确认框中心被全图识别。
         matching_config = config["template_matching"]  # 读取应用真实模板引擎参数。
         feature_set = FeatureSet(False, matching_config["coco_feature_json"], default_horizontal_variance=matching_config["default_horizontal_variance"], default_vertical_variance=matching_config["default_vertical_variance"], default_threshold=matching_config["default_threshold"])  # 创建与正式任务一致的模板引擎。
-        frame = make_bottom_right_black(cv2.imread("ok_templates/23.png"))  # 按正式截图预处理方式加载二十三号确认框截图。
+        frame = make_bottom_right_black(cv2.imread(os.path.join("ok_templates", "21x9", "23.png")))  # 按正式截图预处理方式加载二十三号确认框截图。
         self.task.executor.feature_set = feature_set  # 将任务连接到真实模板引擎以执行全图匹配。
         self.task.executor.frame = frame  # 把二十三号截图设置为任务正在处理的最新帧。
         self.task.executor.method.width = frame.shape[1]  # 提供全屏搜索框计算所需的画面宽度。
@@ -154,11 +158,11 @@ class TestAutoPveBattleTask(unittest.TestCase):  # 定义不共享全局应用�
             self.assertIs(map_overview, match_call.kwargs["box"])  # 确认颜色识别限制在主地图范围内。
             self.assertIsInstance(match_call.kwargs["template"], np.ndarray)  # 确认每次调用都把转换后的模板交给框架原生接口。
 
-    @unittest.skipUnless(os.path.isfile("ok_templates/14.png"), "Map reference screenshot is not available.")  # 仅在本地十四号地图截图存在时运行颜色识别集成验证。
+    @unittest.skipUnless(os.path.isfile(os.path.join("ok_templates", "21x9", "14.png")), "Map reference screenshot is not available.")  # 仅在本地十四号地图截图存在时运行颜色识别集成验证。
     def test_area_colors_match_reference_map(self):  # 用十四号真实截图验证四个字母及颜色能够同时识别。
         matching_config = config["template_matching"]  # 读取应用真实模板引擎参数。
         feature_set = FeatureSet(False, matching_config["coco_feature_json"], default_horizontal_variance=matching_config["default_horizontal_variance"], default_vertical_variance=matching_config["default_vertical_variance"], default_threshold=matching_config["default_threshold"])  # 创建与正式任务一致的模板引擎。
-        frame = make_bottom_right_black(cv2.imread("ok_templates/14.png"))  # 按正式截图预处理方式加载十四号大地图。
+        frame = make_bottom_right_black(cv2.imread(os.path.join("ok_templates", "21x9", "14.png")))  # 按正式截图预处理方式加载十四号大地图。
         self.task.executor.feature_set = feature_set  # 将任务连接到真实模板引擎以执行颜色变体匹配。
         self.task.executor.frame = frame  # 把十四号截图设置为任务正在处理的最新帧。
         self.task.executor.method.width = frame.shape[1]  # 提供框架全屏搜索框计算所需的画面宽度。
@@ -192,16 +196,16 @@ class TestAutoPveBattleTask(unittest.TestCase):  # 定义不共享全局应用�
             self.task._handle_map()  # 执行一次地图航点选择。
         click.assert_called_once_with(area_d, after_sleep=3)  # 确认更高分的占领区覆盖了较低分的敌方基地。
 
-    @unittest.skipUnless(all(os.path.isfile(f"ok_templates/{name}.png") for name in (14, 17, 19)), "Rotated cursor reference screenshots are not available.")  # 仅在三张地图参考截图齐全时运行旋转匹配验证。
+    @unittest.skipUnless(all(os.path.isfile(os.path.join("ok_templates", "21x9", f"{name}.png")) for name in (14, 17, 19)), "Rotated cursor reference screenshots are not available.")  # 仅在三张地图参考截图齐全时运行旋转匹配验证。
     def test_rotated_ship_cursor_matches_reference_maps(self):  # 验证不同朝向的舰船光标都能通过旋转模板识别。
         matching_config = config["template_matching"]  # 读取应用真实模板引擎参数。
         feature_set = FeatureSet(False, matching_config["coco_feature_json"], default_horizontal_variance=matching_config["default_horizontal_variance"], default_vertical_variance=matching_config["default_vertical_variance"], default_threshold=matching_config["default_threshold"])  # 创建与正式任务一致的模板引擎。
         expected_centers = {14: (1852, 827), 17: (2118, 1430), 19: (2970, 1398)}  # 记录三张截图中主地图舰船光标的预期中心坐标。
         self.task.executor.feature_set = feature_set  # 将任务连接到真实模板引擎以执行旋转匹配。
-        self.task.executor.device_manager.supported_ratio = 5120 / 2160  # 模拟正式配置使用的六十四比二十七画面比例。
+        self.task.executor.device_manager.supported_ratio = 5120 / 2160  # 模拟正式超宽屏窗口比例。
         for image_number, expected_center in expected_centers.items():  # 逐张验证三种不同朝向的地图截图。
             with self.subTest(image=f"{image_number}.png"):  # 在测试失败信息中保留具体截图编号。
-                frame = make_bottom_right_black(cv2.imread(f"ok_templates/{image_number}.png"))  # 按正式截图预处理方式读取完整参考画面。
+                frame = make_bottom_right_black(cv2.imread(os.path.join("ok_templates", "21x9", f"{image_number}.png")))  # 按正式截图预处理方式读取完整参考画面。
                 self.task.executor.frame = frame  # 把当前参考截图设置为任务正在处理的最新帧。
                 self.task.executor.method.width = frame.shape[1]  # 提供全屏搜索框计算所需的画面宽度。
                 self.task.executor.method.height = frame.shape[0]  # 提供全屏搜索框计算所需的画面高度。
@@ -233,7 +237,7 @@ class TestAutoPveBattleTask(unittest.TestCase):  # 定义不共享全局应用�
         send_key.assert_called_once_with("esc", after_sleep=1)  # 确认正常返回战斗后不会发送多余的地图切换键。
 
     def test_leave_battle_presses_esc_and_clicks_continue_when_count_not_full(self):  # 验证击沉后按 ESC，场次未满时点击继续战斗。
-        continue_button = Box(10, 10, 20, 20, name="Continue-Battle")  # 构造 ESC 后出现的继续战斗按钮。
+        continue_button = Box(10, 10, 20, 20, name="Continue-Battle-After-Sunk")  # 构造 ESC 后出现的击沉后续继续战斗按钮。
         with patch.object(self.task, "send_key") as send_key, patch.object(self.task, "wait_until", return_value=(continue_button, None)), patch.object(self.task, "click") as click, patch.object(self.task, "wait_click_feature") as wait_click, patch.object(self.task, "log_error"):  # 隔离按键、后续页面等待和真实点击。
             self.assertEqual("continued", self.task._handle_leave_battle(True))  # 场次未满时应报告已经点击继续战斗。
         send_key.assert_called_once_with("esc", after_sleep=1)  # 确认只按 ESC 打开后续页面而不是点击离开战斗入口。
@@ -241,7 +245,7 @@ class TestAutoPveBattleTask(unittest.TestCase):  # 定义不共享全局应用�
         wait_click.assert_not_called()  # 确认场次未满且有继续按钮时不会再点确认离开。
 
     def test_leave_battle_clicks_confirm_when_count_is_full(self):  # 验证场次已满时即使出现继续战斗也改为确认离开。
-        continue_button = Box(10, 10, 20, 20, name="Continue-Battle")  # 构造后续页面中的继续战斗按钮。
+        continue_button = Box(10, 10, 20, 20, name="Continue-Battle-After-Sunk")  # 构造后续页面中的击沉后续继续战斗按钮。
         confirm_button = Box(40, 10, 20, 20, name="Leave-Battle-Confirm")  # 构造后续页面中的确认离开按钮。
         with patch.object(self.task, "send_key") as send_key, patch.object(self.task, "wait_until", return_value=(continue_button, confirm_button)), patch.object(self.task, "click") as click, patch.object(self.task, "wait_click_feature") as wait_click, patch.object(self.task, "log_error"):  # 隔离按键、后续页面等待和真实点击。
             self.assertEqual("left", self.task._handle_leave_battle(False))  # 场次已满时应报告已经确认离开。
@@ -322,6 +326,71 @@ class TestAutoPveBattleTask(unittest.TestCase):  # 定义不共享全局应用�
         with patch.object(self.task, "ensure_in_front"), patch.object(self.task, "_return_to_main", return_value=True), patch.object(self.task, "_prepare_and_join_first_battle", return_value=True), patch.object(self.task, "_run_until_result", side_effect=lambda can_continue=True: next(outcomes)), patch.object(self.task, "wait_click_feature") as wait_click, patch.object(self.task, "log_info"), patch.object(self.task, "log_error"):  # 隔离真实游戏输入并运行击沉后的计数逻辑。
             self.task.run()  # 执行设置为两场且都走击沉后续页面的任务主流程。
         wait_click.assert_not_called()  # 确认已经点击过继续或确认离开后不会再点结算页按钮。
+
+    def test_find_leave_followup_uses_after_sunk_continue_button(self):  # 验证击沉后续页使用专用继续战斗模板而不是结算页按钮。
+        after_sunk = Box(10, 10, 20, 20, name="Continue-Battle-After-Sunk")  # 构造击沉后续页的继续战斗按钮。
+        confirm = Box(40, 10, 20, 20, name="Leave-Battle-Confirm")  # 构造同一页的确认离开按钮。
+        with patch.object(self.task, "find_one", side_effect=lambda name, **kwargs: {"Continue-Battle-After-Sunk": after_sunk, "Leave-Battle-Confirm": confirm}.get(name)) as find_one:  # 按新模板名返回后续页按钮。
+            self.assertEqual((after_sunk, confirm), self.task._find_leave_followup())  # 确认后续页查找结果包含专用继续按钮。
+        self.assertEqual("Continue-Battle-After-Sunk", find_one.call_args_list[0].args[0])  # 确认优先搜索击沉后续页专用按钮。
+
+    def test_find_one_uses_full_screen_search_for_after_sunk_button(self):  # 验证击沉后续继续按钮与结算继续按钮一样使用全图搜索。
+        with patch.object(MyBaseTask, "find_one", return_value=None) as super_find:  # 拦截基类查找以检查覆盖后的搜索范围。
+            self.task.find_one("Continue-Battle-After-Sunk", threshold=0.8)  # 按任务接口查找击沉后续继续按钮。
+        self.assertEqual(1, super_find.call_args.kwargs["horizontal_variance"])  # 确认水平方向覆盖整屏。
+        self.assertEqual(1, super_find.call_args.kwargs["vertical_variance"])  # 确认垂直方向覆盖整屏。
+
+    def test_resolution_packs_pick_coco_by_window_ratio(self):  # 验证 21:9、16:10、16:9 窗口会选中对应的子目录。
+        self.assertEqual(os.path.join("assets", "21x9", "coco_annotations.json"), coco_json_for_size(5120, 2160))  # 超宽屏使用 21:9 标注。
+        self.assertEqual(os.path.join("assets", "16x10", "coco_annotations.json"), coco_json_for_size(2560, 1600))  # 十六比十窗口使用对应标注。
+        self.assertEqual(os.path.join("assets", "16x9", "coco_annotations.json"), coco_json_for_size(1920, 1080))  # 十六比九窗口使用对应标注。
+        self.assertEqual(os.path.join("ok_templates", "21x9"), template_folder_for_size(5120, 2160))  # 超宽屏开发截图保存在 21x9 子目录。
+        self.assertEqual(os.path.join("ok_templates", "16x10"), template_folder_for_size(2560, 1600))  # 十六比十开发截图保存在 16x10 子目录。
+        self.assertEqual(os.path.join("ok_templates", "16x9"), template_folder_for_size(1920, 1080))  # 十六比九开发截图保存在 16x9 子目录。
+        self.assertEqual(os.path.join("assets", "21x9"), asset_folder_for_size(5120, 2160))  # 超宽屏压缩保存写入 21x9。
+        self.assertEqual(os.path.join("assets", "16x10"), asset_folder_for_size(2560, 1600))  # 十六比十压缩保存写入 16x10。
+        self.assertEqual(os.path.join("assets", "16x9"), asset_folder_for_size(1920, 1080))  # 十六比九压缩保存写入 16x9。
+        self.assertEqual("21:9", pack_for_size(2560, 1080)["ratio"])  # 常见超宽屏分辨率归入 21:9。
+        self.assertEqual("16:9", pack_for_size(2560, 1440)["ratio"])  # 常见十六比九分辨率归入 16:9。
+        self.assertTrue(ratio_is_supported(5120, 2160))  # 确认超宽屏比例被接受。
+        self.assertTrue(ratio_is_supported(2560, 1600))  # 确认十六比十比例被接受。
+        self.assertTrue(ratio_is_supported(1920, 1080))  # 确认十六比九比例被接受。
+        self.assertFalse(ratio_is_supported(1280, 1024))  # 确认未支持的比例不会被当成已知比例。
+        self.assertEqual(os.path.abspath(os.path.join("assets", "16x10")), redirect_asset_target("assets", os.path.join("ok_templates", "16x10")))  # 从十六比十模板目录保存时写入 16x10。
+        self.assertEqual(os.path.abspath(os.path.join("assets", "21x9")), redirect_asset_target("assets", os.path.join("ok_templates", "21x9")))  # 从超宽屏模板目录保存时写入 21x9。
+        self.assertEqual(os.path.abspath(os.path.join("assets", "16x9")), redirect_asset_target("assets", os.path.join("ok_templates", "16x9")))  # 从十六比九模板目录保存时写入 16x9。
+        self.assertEqual(os.path.join("ok_tasks", "assets"), redirect_asset_target(os.path.join("ok_tasks", "assets"), os.path.join("ok_templates", "16x10")))  # 自定义脚本目录保持原样。
+        set_pack_override("16:9")  # 模拟截图页手动选十六比九。
+        self.assertEqual(os.path.join("ok_templates", "16x9"), current_template_folder())  # 确认开发截图目录跟随按钮选择。
+        self.assertEqual(os.path.join("assets", "21x9", "coco_annotations.json"), coco_json_for_size(5120, 2160))  # 确认运行时匹配仍按真实窗口比例，不受截图页按钮影响。
+        set_pack_override(None)  # 清掉手动选择以免影响后续测试。
+
+    def test_feature_set_switches_coco_json_by_frame_ratio(self):  # 验证模板引擎会按当前帧比例切换 coco 文件。
+        matching_config = config["template_matching"]  # 读取正式模板配置。
+        feature_set = FeatureSet(False, matching_config["coco_feature_json"], default_horizontal_variance=matching_config["default_horizontal_variance"], default_vertical_variance=matching_config["default_vertical_variance"], default_threshold=matching_config["default_threshold"])  # 创建与正式任务一致的模板引擎。
+        feature_set.check_size(np.zeros((2160, 5120, 3), dtype=np.uint8))  # 先用超宽屏尺寸触发一次加载路径选择。
+        self.assertIn("21x9", feature_set.coco_json.replace("\\", "/"))  # 确认超宽屏使用 21x9 coco。
+        feature_set.check_size(np.zeros((1600, 2560, 3), dtype=np.uint8))  # 再改用十六比十尺寸。
+        self.assertIn("16x10", feature_set.coco_json.replace("\\", "/"))  # 确认已经切换到十六比十模板。
+        feature_set.check_size(np.zeros((1080, 1920, 3), dtype=np.uint8))  # 再改用十六比九尺寸。
+        self.assertIn("16x10", feature_set.coco_json.replace("\\", "/"))  # 十六比九标注还不存在时继续使用上一套可用模板。
+
+    def test_both_asset_packs_use_current_feature_names(self):  # 验证已有两套标注使用同一套当前器件名。
+        import json  # 仅在本测试中读取两份 coco 分类名。
+        current_names = {category["name"] for category in json.loads(Path("assets/21x9/coco_annotations.json").read_text(encoding="utf-8"))["categories"]}  # 读取超宽屏分类名。
+        wide_names = {category["name"] for category in json.loads(Path("assets/16x10/coco_annotations.json").read_text(encoding="utf-8"))["categories"]}  # 读取十六比十分类名。
+        self.assertEqual(current_names, wide_names)  # 确认合并后的十六比十标注已经改成当前命名。
+        self.assertIn("Continue-Battle-After-Sunk", current_names)  # 确认击沉后续按钮使用新名字。
+        self.assertNotIn("Continue-Battle-Button-After-Sunk", wide_names)  # 确认旧的击沉后续按钮名已经去掉。
+        self.assertNotIn("leave-battle-button", wide_names)  # 确认旧的小写按钮名已经去掉。
+
+    def test_sixteen_by_ten_pack_matches_join_battle_on_its_own_image(self):  # 验证十六比十模板能在自己的标注图上命中。
+        matching_config = config["template_matching"]  # 读取正式模板配置。
+        feature_set = FeatureSet(False, matching_config["coco_feature_json"], default_horizontal_variance=matching_config["default_horizontal_variance"], default_vertical_variance=matching_config["default_vertical_variance"], default_threshold=matching_config["default_threshold"])  # 创建与正式任务一致的模板引擎。
+        frame = cv2.imread("assets/16x10/images/0.png")  # 读取十六比十主界面标注图。
+        boxes = feature_set.find_feature(frame, "Join-Battle", threshold=0.8, limit=1)  # 按当前器件名查找加入战斗按钮。
+        self.assertTrue(boxes)  # 确认十六比十资源已经可以按新命名匹配。
+        self.assertGreaterEqual(boxes[0].confidence, 0.8)  # 确认匹配分数达到正式阈值。
 
 
 if __name__ == "__main__":  # 支持直接运行本测试文件。
