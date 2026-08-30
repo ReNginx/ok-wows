@@ -462,6 +462,19 @@
             ],
             "area": 3094,
             "iscrowd": 0
+        },
+        {
+            "id": 30,
+            "image_id": 26,
+            "category_id": 29,
+            "bbox": [
+                2714,
+                1024,
+                226,
+                56
+            ],
+            "area": 12656,
+            "iscrowd": 0
         }
     ],
     "categories": [
@@ -603,6 +616,11 @@
         {
             "id": 28,
             "name": "Enemy-Base",
+            "supercategory": ""
+        },
+        {
+            "id": 29,
+            "name": "Continue-Battle-After-Sunk",
             "supercategory": ""
         },
         {
