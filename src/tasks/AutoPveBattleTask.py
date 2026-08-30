@@ -49,17 +49,20 @@ class AutoPveBattleTask(MyBaseTask):  # 定义自动完成 PVE 战斗的一次�
             self.log_error("第一场战斗准备失败，任务停止。")  # 记录准备流程失败。
             return  # 准备失败时安全结束任务。
         while completed_count < target_count:  # 持续运行战斗循环直到达到用户设置的场数。
-            if not self._run_until_result():  # 处理排队、开战、地图导航和战斗直到结算页。
+            outcome = self._run_until_result(completed_count, target_count)  # 进行一场战斗直到结算页或处理舰船被击沉。
+            if outcome == "error":  # 无法继续识别界面时判定为流程失败。
                 self.log_error("等待战斗结算超时，任务停止。")  # 记录无法继续识别界面的错误。
                 return  # 无法到达结算页时安全结束任务。
-            completed_count += 1  # 到达结算页后把当前战斗计入已完成数量。
+            completed_count += 1  # 本场战斗无论正常结算还是被击沉都计入已完成数量。
             self.log_info(f"已完成 {completed_count}/{target_count} 场 PVE 战斗。")  # 更新战斗完成进度日志。
             if completed_count >= target_count:  # 检查是否已经达到用户设定的战斗场数。
                 self.log_info("已达到设定战斗场数，任务完成。", notify=True)  # 通知用户任务已经完成。
-                return  # 保持在结算页并结束任务。
-            if not self.wait_click_feature("continue-battle-button", threshold=self.threshold, time_out=30, raise_if_not_found=False, after_sleep=2):  # 未达到目标时点击继续战斗进入下一次排队。
-                self.log_error("没有找到继续战斗按钮，任务停止。")  # 记录无法进入下一场战斗的原因。
-                return  # 无法继续战斗时安全结束任务。
+                return  # 无论停在结算页还是已确认离开返回港口都结束任务。
+            if outcome == "result":  # 仅正常结算页需要点击继续战斗按钮进入下一次排队。
+                if not self.wait_click_feature("continue-battle-button", threshold=self.threshold, time_out=30, raise_if_not_found=False, after_sleep=2):  # 未达到目标时点击继续战斗进入下一次排队。
+                    self.log_error("没有找到继续战斗按钮，任务停止。")  # 记录无法进入下一场战斗的原因。
+                    return  # 无法继续战斗时安全结束任务。
+            # outcome 为 sunk_continue 时击沉后已点击继续按钮回到排队界面，无需再点击继续战斗按钮，直接进入下一轮循环。
 
     def _prepare_and_join_first_battle(self):  # 在主界面完成首场战斗的全部准备动作。
         if not self.wait_click_feature("Pick-First-Ship", threshold=self.threshold, time_out=15, raise_if_not_found=False, after_sleep=1):  # 点击第一个舰船选择入口。
@@ -100,7 +103,7 @@ class AutoPveBattleTask(MyBaseTask):  # 定义自动完成 PVE 战斗的一次�
             self.send_key("esc", after_sleep=1)  # 返回上一层；若是菜单页面则关闭菜单。
         return False  # 达到最大尝试次数仍未识别主界面时报告失败。
 
-    def _run_until_result(self):  # 从排队开始持续处理状态直到出现战斗结算页面。
+    def _run_until_result(self, completed_count, target_count):  # 进行一场战斗直到出现结算页面或舰船被击沉后完成处理。
         battle_initialized = False  # 标记当前战斗是否已经完成前进和地图导航初始化。
         battle_start_clicked_at = None  # 记录点击开始战斗按钮的时间以提供模板识别失败时的回退。
         unknown_since = None  # 记录连续无法识别界面的起始时间。
@@ -109,19 +112,15 @@ class AutoPveBattleTask(MyBaseTask):  # 定义自动完成 PVE 战斗的一次�
             if scene != "unknown":  # 成功识别任一已知界面时清除未知计时。
                 unknown_since = None  # 重置连续未知界面计时器。
             if scene == "result":  # 结算页包含继续战斗或返回港口按钮。
-                return True  # 把结算页交回外层进行计数和续战判断。
+                return "result"  # 把结算页交回外层进行计数和续战判断。
             if scene == "menu":  # ESC 打开的菜单不属于工作流目标界面。
                 self.send_key("esc", after_sleep=1)  # 再按一次 ESC 关闭最外层菜单。
                 continue  # 关闭菜单后重新截图识别。
             if scene == "queue":  # 排队页面只需要等待系统匹配战斗。
                 self.sleep(2)  # 等待两秒后再检查排队状态。
                 continue  # 排队期间不执行任何游戏操作。
-            if scene == "leave_battle":  # 舰船被击沉后出现离开战斗入口时立即返回港口。
-                if not self._leave_battle_and_rejoin():  # 点击离开、确认，并从主界面直接加入下一场战斗。
-                    return False  # 任一步骤失败时报告流程失败以避免在异常页面误操作。
-                battle_initialized = False  # 新一场战斗需要重新执行前进和地图航点初始化。
-                battle_start_clicked_at = None  # 清除上一场战斗开始按钮的回退计时。
-                continue  # 已直接加入下一场后重新识别排队或开战页面。
+            if scene == "leave_battle":  # 舰船被击沉后出现离开战斗入口时立即停止开火并处理击沉页面。
+                return self._handle_sunk_battle(completed_count, target_count)  # 按 ESC 识别离开页面后按剩余场数继续战斗或确认离开。
             if scene == "main":  # 加入战斗后仍停在主界面时视为按钮未成功生效。
                 self.wait_click_feature("Join-Battle", threshold=self.threshold, time_out=10, raise_if_not_found=False, after_sleep=2)  # 再次点击加入战斗以恢复流程。
                 continue  # 点击后重新截图识别游戏状态。
@@ -151,20 +150,25 @@ class AutoPveBattleTask(MyBaseTask):  # 定义自动完成 PVE 战斗的一次�
             if unknown_since is None:  # 第一次进入无法识别的过渡画面时开始计时。
                 unknown_since = time.monotonic()  # 保存单调时钟时间以避免系统时间变化影响。
             elif time.monotonic() - unknown_since >= 60:  # 连续一分钟无法识别任何界面时判定异常。
-                return False  # 报告战斗流程超时并交由外层停止任务。
+                return "error"  # 报告战斗流程超时并交由外层停止任务。
             self.sleep(1)  # 对加载画面和短暂动画留出一秒缓冲。
 
-    def _leave_battle_and_rejoin(self):  # 舰船被击沉后离开当前战斗并直接开始下一场。
-        if not self.wait_click_feature("Leave-Battle", threshold=self.threshold, time_out=10, raise_if_not_found=False, after_sleep=1):  # 点击十二号截图中的离开战斗入口。
-            self.log_error("没有找到离开战斗按钮。")  # 记录无法进入离开确认页面的原因。
-            return False  # 未能离开当前战斗时停止恢复流程。
-        if not self.wait_click_feature("Confirm-Leaving-Battle", threshold=self.threshold, time_out=10, raise_if_not_found=False, after_sleep=3):  # 点击十三号截图中的确认离开按钮并等待返回港口。
+    def _handle_sunk_battle(self, completed_count, target_count):  # 舰船被击沉后停止开火并按已完成场数决定继续战斗或离开。
+        self.log_info("舰船被击沉，已停止鼠标左键开火，准备离开当前战斗。")  # 记录已离开开火分支并停止左键点击。
+        self.send_key("esc", after_sleep=1)  # 按 ESC 打开离开战斗确认界面。
+        leaving_feature = self.wait_feature("Leaving-Battle", threshold=self.threshold, time_out=10, raise_if_not_found=False)  # 等待识别离开战斗确认界面元素。
+        if leaving_feature is None:  # 离开确认界面没有出现时报告失败以避免误点击。
+            self.log_error("没有找到离开战斗确认界面。")  # 记录无法进入击沉处理决策的原因。
+            return "error"  # 无法识别离开界面时停止流程。
+        if completed_count + 1 < target_count:  # 把被击沉的本场计入后仍未达到目标场数时继续下一场战斗。
+            if not self.wait_click_feature("Continue-Battle-Button-After-Sunk", threshold=self.threshold, time_out=10, raise_if_not_found=False, after_sleep=2):  # 点击击沉后的继续战斗按钮回到排队或开战界面。
+                self.log_error("没有找到击沉后的继续战斗按钮。")  # 记录无法继续下一场战斗的原因。
+                return "error"  # 无法继续战斗时停止流程。
+            return "sunk_continue"  # 已回到排队界面并交由外层把本场计入后重新开始下一场。
+        if not self.wait_click_feature("Confirm-Leaving-Battle", threshold=self.threshold, time_out=10, raise_if_not_found=False, after_sleep=3):  # 场数已达标时点击确认离开按钮返回港口。
             self.log_error("没有找到确认离开战斗按钮。")  # 记录无法确认离开当前战斗的原因。
-            return False  # 未能确认离开时停止恢复流程。
-        if not self.wait_click_feature("Join-Battle", threshold=self.threshold, time_out=30, raise_if_not_found=False, after_sleep=2):  # 回到二号截图的主界面后直接点击加入战斗。
-            self.log_error("离开战斗后没有找到加入战斗按钮。")  # 记录无法直接开始下一场战斗的原因。
-            return False  # 不执行选船、模式、加成或旗子流程并安全停止。
-        return True  # 已直接加入下一场战斗时报告恢复成功。
+            return "error"  # 无法确认离开时停止流程。
+        return "sunk_left"  # 已确认离开并交由外层把本场计入后结束任务。
 
     def _initialize_battle_navigation(self):  # 在战斗开始时完成前进输入并打开地图。
         for _ in range(10):  # 按工作流向游戏发送十次前进键。

@@ -194,15 +194,28 @@ class TestAutoPveBattleTask(unittest.TestCase):  # 定义不共享全局应用�
             self.task._close_map()  # 执行带结果确认的地图关闭流程。
         self.assertEqual([call("esc", after_sleep=2), call("m", after_sleep=2)], send_key.call_args_list)  # 确认先遵循工作流按 ESC 再用 M 恢复。
 
-    def test_leave_battle_confirms_and_rejoins_without_preparation(self):  # 验证击沉后确认离开并直接加入下一场战斗。
-        with patch.object(self.task, "wait_click_feature", side_effect=[True, True, True]) as wait_click, patch.object(self.task, "_prepare_and_join_first_battle") as prepare, patch.object(self.task, "log_error"):  # 模拟离开、确认和直接加入都成功。
-            self.assertTrue(self.task._leave_battle_and_rejoin())  # 执行击沉后的恢复流程并确认成功。
-        self.assertEqual([  # 确认三个按钮严格按页面出现顺序点击。
-            call("Leave-Battle", threshold=0.8, time_out=10, raise_if_not_found=False, after_sleep=1),  # 先点击十二号截图中的离开战斗入口。
-            call("Confirm-Leaving-Battle", threshold=0.8, time_out=10, raise_if_not_found=False, after_sleep=3),  # 再点击十三号截图中的确认按钮。
-            call("Join-Battle", threshold=0.8, time_out=30, raise_if_not_found=False, after_sleep=2),  # 回到二号截图后直接点击加入战斗。
-        ], wait_click.call_args_list)  # 对比实际按钮调用顺序和参数。
-        prepare.assert_not_called()  # 确认恢复流程没有重新执行选船、模式、加成和旗子准备。
+    def test_sunk_battle_continues_when_count_not_reached(self):  # 验证击沉后计入本场仍未达标时按 ESC 并点击继续按钮回到排队。
+        with patch.object(self.task, "send_key") as send_key, patch.object(self.task, "wait_feature", return_value=Box(10, 10, 20, 20, name="Leaving-Battle")) as wait_feature, patch.object(self.task, "wait_click_feature", return_value=True) as wait_click, patch.object(self.task, "log_info"):  # 模拟离开界面出现且继续按钮点击成功。
+            self.assertEqual("sunk_continue", self.task._handle_sunk_battle(0, 2))  # 计入击沉本场后仍差一场时应选择继续战斗。
+        send_key.assert_called_once_with("esc", after_sleep=1)  # 确认停止开火后先按 ESC 打开离开界面。
+        wait_feature.assert_called_once_with("Leaving-Battle", threshold=0.8, time_out=10, raise_if_not_found=False)  # 确认使用 Leaving-Battle 元素确认离开界面出现。
+        wait_click.assert_called_once_with("Continue-Battle-Button-After-Sunk", threshold=0.8, time_out=10, raise_if_not_found=False, after_sleep=2)  # 确认点击击沉后的继续战斗按钮。
+
+    def test_sunk_battle_confirms_leave_when_count_reached(self):  # 验证击沉后计入本场已达标时确认离开战斗返回港口。
+        with patch.object(self.task, "send_key"), patch.object(self.task, "wait_feature", return_value=Box(10, 10, 20, 20, name="Leaving-Battle")), patch.object(self.task, "wait_click_feature", return_value=True) as wait_click, patch.object(self.task, "log_info"):  # 模拟离开界面出现且确认按钮点击成功。
+            self.assertEqual("sunk_left", self.task._handle_sunk_battle(1, 2))  # 计入击沉本场后达到目标时应选择确认离开。
+        wait_click.assert_called_once_with("Confirm-Leaving-Battle", threshold=0.8, time_out=10, raise_if_not_found=False, after_sleep=3)  # 确认点击确认离开按钮。
+
+    def test_sunk_battle_reports_error_when_leaving_screen_missing(self):  # 验证离开界面没有出现时不点击任何按钮并报告失败。
+        with patch.object(self.task, "send_key"), patch.object(self.task, "wait_feature", return_value=None), patch.object(self.task, "wait_click_feature") as wait_click, patch.object(self.task, "log_error"):  # 模拟离开界面始终无法识别。
+            self.assertEqual("error", self.task._handle_sunk_battle(0, 2))  # 离开界面缺失时应停止流程。
+        wait_click.assert_not_called()  # 确认未识别离开界面时不执行任何按钮点击。
+
+    def test_run_until_result_delegates_sunk_handling_with_counts(self):  # 验证舰船被击沉时状态机携带当前场数交给击沉处理并直接返回其结果。
+        scenes = iter(("battle", "leave_battle"))  # 模拟正常战斗后舰船被击沉的状态序列。
+        with patch.object(self.task, "_detect_scene", side_effect=lambda: next(scenes)), patch.object(self.task, "_initialize_battle_navigation"), patch.object(self.task, "_handle_sunk_battle", return_value="sunk_continue") as handle_sunk:  # 隔离航行初始化和实际击沉处理。
+            self.assertEqual("sunk_continue", self.task._run_until_result(0, 2))  # 击沉处理结果应直接交回外层循环。
+        handle_sunk.assert_called_once_with(0, 2)  # 确认击沉处理收到当前完成场数和目标场数。
 
     def test_navigation_sends_exactly_ten_forward_keys_once(self):  # 验证单次航行初始化只发送十次前进键。
         with patch.object(self.task, "send_key") as send_key, patch.object(self.task, "_handle_map", return_value=True):  # 隔离真实键盘输入和地图处理。
@@ -214,22 +227,31 @@ class TestAutoPveBattleTask(unittest.TestCase):  # 定义不共享全局应用�
     def test_start_button_time_fallback_initializes_dynamic_battle_hud(self):  # 验证不同舰船导致 HUD 模板失配时仍能执行前进初始化。
         scenes = iter(("battle_start", "unknown", "result"))  # 模拟点击开始后 HUD 一直无法模板识别再进入结算的状态序列。
         with patch.object(self.task, "_detect_scene", side_effect=lambda: next(scenes)), patch.object(self.task, "wait_click_feature", return_value=True), patch.object(self.task, "_initialize_battle_navigation") as initialize, patch("src.tasks.AutoPveBattleTask.time.monotonic", side_effect=(0, 31)):  # 模拟三十秒加载回退并隔离真实输入。
-            self.assertTrue(self.task._run_until_result())  # 确认状态机最终能够继续运行到结算页。
+            self.assertEqual("result", self.task._run_until_result(0, 1))  # 确认状态机最终能够继续运行到结算页。
         initialize.assert_called_once_with()  # 确认回退逻辑只执行一次十次前进初始化。
 
-    def test_rejoined_battle_runs_navigation_initialization_again(self):  # 验证离开击沉页面并重新加入后会初始化新一场战斗。
-        scenes = iter(("battle", "leave_battle", "battle", "result"))  # 模拟当前战斗、击沉离开、新战斗和最终结算的状态序列。
-        with patch.object(self.task, "_detect_scene", side_effect=lambda: next(scenes)), patch.object(self.task, "_leave_battle_and_rejoin", return_value=True) as rejoin, patch.object(self.task, "_initialize_battle_navigation") as initialize:  # 隔离实际按钮点击和键盘地图操作。
-            self.assertTrue(self.task._run_until_result())  # 执行包含击沉重开的完整状态机片段。
-        rejoin.assert_called_once_with()  # 确认击沉页面只执行一次离开并直接重开流程。
-        self.assertEqual(2, initialize.call_count)  # 确认新一场战斗不会沿用上一场的航行初始化状态。
-
-    def test_run_counts_results_and_only_continues_when_needed(self):  # 验证战斗计数达到目标前才点击继续战斗。
+    def test_run_counts_sunk_continue_battle_and_reaches_target(self):  # 验证击沉继续的战斗也计入场数且无需额外点击结算继续按钮。
         self.task.config["Battle Count"] = 2  # 将本次测试目标设置为两场战斗。
-        run_until_result = MagicMock(return_value=True)  # 模拟每一场战斗都成功到达结算页。
+        run_until_result = MagicMock(side_effect=["sunk_continue", "result"])  # 模拟第一场被击沉继续、第二场正常结算。
+        with patch.object(self.task, "_return_to_main", return_value=True), patch.object(self.task, "_prepare_and_join_first_battle", return_value=True), patch.object(self.task, "_run_until_result", run_until_result), patch.object(self.task, "wait_click_feature", return_value=True) as wait_click, patch.object(self.task, "log_info"), patch.object(self.task, "log_error"):  # 隔离真实游戏输入和日志状态并运行计数逻辑。
+            self.task.run()  # 执行设置为两场的任务主流程。
+        self.assertEqual(2, run_until_result.call_count)  # 确认击沉场与结算场都被计入并处理。
+        wait_click.assert_not_called()  # 击沉继续已回排队且第二场后已达标，不应再点击继续战斗按钮。
+
+    def test_run_counts_sunk_left_battle_and_stops(self):  # 验证击沉且场数达标时确认离开并结束任务。
+        self.task.config["Battle Count"] = 2  # 将本次测试目标设置为两场战斗。
+        run_until_result = MagicMock(side_effect=["result", "sunk_left"])  # 模拟第一场正常结算、第二场被击沉且达标离开。
         with patch.object(self.task, "_return_to_main", return_value=True), patch.object(self.task, "_prepare_and_join_first_battle", return_value=True), patch.object(self.task, "_run_until_result", run_until_result), patch.object(self.task, "wait_click_feature", return_value=True) as wait_click, patch.object(self.task, "log_info"), patch.object(self.task, "log_error"):  # 隔离真实游戏输入和日志状态并运行计数逻辑。
             self.task.run()  # 执行设置为两场的任务主流程。
         self.assertEqual(2, run_until_result.call_count)  # 确认两场战斗都被计入并处理。
+        wait_click.assert_called_once_with("continue-battle-button", threshold=0.8, time_out=30, raise_if_not_found=False, after_sleep=2)  # 仅在第一场结算后点击一次继续战斗，击沉离开后不再点击。
+
+    def test_run_counts_results_and_only_continues_when_needed(self):  # 验证战斗计数达到目标前才点击继续战斗。
+        self.task.config["Battle Count"] = 2  # 将本次测试目标设置为两场战斗。
+        run_until_result = MagicMock(return_value="result")  # 模拟每一场战斗都成功到达结算页。
+        with patch.object(self.task, "_return_to_main", return_value=True), patch.object(self.task, "_prepare_and_join_first_battle", return_value=True), patch.object(self.task, "_run_until_result", run_until_result), patch.object(self.task, "wait_click_feature", return_value=True) as wait_click, patch.object(self.task, "log_info"), patch.object(self.task, "log_error"):  # 隔离真实游戏输入和日志状态并运行计数逻辑。
+            self.task.run()  # 执行设置为两场的任务主流程。
+        self.assertEqual([call(0, 2), call(1, 2)], run_until_result.call_args_list)  # 确认两场战斗都携带当前完成数和目标场数处理。
         wait_click.assert_called_once_with("continue-battle-button", threshold=0.8, time_out=30, raise_if_not_found=False, after_sleep=2)  # 确认只在第一场结束后点击一次继续战斗。
 
 
