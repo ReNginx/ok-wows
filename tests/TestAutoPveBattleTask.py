@@ -23,6 +23,7 @@ class TestAutoPveBattleTask(unittest.TestCase):  # 定义不共享全局应用�
         self.assertIn(["src.tasks.AutoPveBattleTask", "AutoPveBattleTask"], config["onetime_tasks"])  # 确认任务已注册到一次性任务列表。
         self.assertEqual(1, self.task.default_config["Battle Count"])  # 确认默认只执行一场战斗。
         self.assertEqual(0.8, self.task.default_config["Template Threshold"])  # 确认默认匹配阈值与项目一致。
+        self.assertEqual(0.75, self.task.map_threshold)  # 确认大地图识别使用更宽松但仍保守的专用阈值。
 
     def test_config_validation_rejects_invalid_values(self):  # 验证危险或无效输入会被配置界面拒绝。
         self.assertIsNotNone(self.task.validate_config("Battle Count", 0))  # 零场战斗必须视为无效。
@@ -46,20 +47,20 @@ class TestAutoPveBattleTask(unittest.TestCase):  # 定义不共享全局应用�
 
     def test_scene_detection_prioritizes_leave_battle_over_battle(self):  # 验证舰船被击沉时优先处理离开战斗而不是继续开火。
         boxes = {  # 构造同时包含离开入口和普通战斗罗盘的匹配结果。
-            "Leave-Battle": Box(10, 10, 20, 20, name="Leave-Battle"),  # 模拟十二号截图中的离开战斗入口。
+            "Leave-Battlefield": Box(10, 10, 20, 20, name="Leave-Battlefield"),  # 模拟十二号截图中的离开战斗入口。
             "In-Battle-Compass": Box(40, 10, 20, 20, name="In-Battle-Compass"),  # 模拟击沉页面仍然保留的战斗罗盘。
         }  # 完成模拟匹配结果定义。
         with patch.object(self.task, "next_frame"), patch.object(self.task, "find_one", side_effect=lambda name, **kwargs: boxes.get(name)):  # 使用同一张模拟截图执行场景识别。
             self.assertEqual("leave_battle", self.task._detect_scene())  # 离开入口出现时必须进入离开处理分支。
 
     def test_nameplate_and_tutorial_together_identify_map(self):  # 验证舰船铭牌和教程元素共同确认大地图状态。
-        boxes = {"Libertadad-Nameplate": Box(10, 10, 20, 20, name="Libertadad-Nameplate"), "Map-Tutorial": Box(40, 10, 20, 20, name="Map-Tutorial")}  # 构造同一帧中的舰船铭牌和大地图教程元素。
+        boxes = {"Libertad-Nameplate": Box(10, 10, 20, 20, name="Libertad-Nameplate"), "Map-Tutorial": Box(40, 10, 20, 20, name="Map-Tutorial")}  # 构造同一帧中的舰船铭牌和大地图教程元素。
         with patch.object(self.task, "next_frame"), patch.object(self.task, "find_one", side_effect=lambda name, **kwargs: boxes.get(name)):  # 模拟两个组合模板同时命中的大地图画面。
             self.assertEqual("map", self.task._detect_scene())  # 两个元素同时命中时应判断为大地图。
 
     def test_nameplate_without_tutorial_identifies_battle(self):  # 验证只有舰船铭牌时判断为普通战斗页面。
-        nameplate_box = Box(10, 10, 20, 20, name="Libertadad-Nameplate")  # 构造普通战斗界面的舰船铭牌匹配结果。
-        with patch.object(self.task, "next_frame"), patch.object(self.task, "find_one", side_effect=lambda name, **kwargs: nameplate_box if name == "Libertadad-Nameplate" else None):  # 模拟铭牌存在但教程元素不存在的战斗画面。
+        nameplate_box = Box(10, 10, 20, 20, name="Libertad-Nameplate")  # 构造普通战斗界面的舰船铭牌匹配结果。
+        with patch.object(self.task, "next_frame"), patch.object(self.task, "find_one", side_effect=lambda name, **kwargs: nameplate_box if name == "Libertad-Nameplate" else None):  # 模拟铭牌存在但教程元素不存在的战斗画面。
             self.assertEqual("battle", self.task._detect_scene())  # 缺少教程元素时应判断为普通战斗。
 
     def test_tutorial_without_nameplate_identifies_battle(self):  # 验证缺少铭牌时按用户指定的否则分支判断为战斗。
@@ -106,8 +107,21 @@ class TestAutoPveBattleTask(unittest.TestCase):  # 定义不共享全局应用�
         matching_config = config["template_matching"]  # 读取应用真实模板引擎参数。
         feature_set = FeatureSet(False, matching_config["coco_feature_json"], default_horizontal_variance=matching_config["default_horizontal_variance"], default_vertical_variance=matching_config["default_vertical_variance"], default_threshold=matching_config["default_threshold"])  # 创建不依赖 GUI 生命周期的真实模板引擎。
         frame = make_bottom_right_black(cv2.imread("ok_templates/13.png"))  # 按正式截图预处理方式加载十三号参考图。
-        boxes = feature_set.find_feature(frame, "Confirm-Leaving-Battle", threshold=self.task.threshold, limit=1)  # 在确认页面中匹配确认离开按钮。
+        boxes = feature_set.find_feature(frame, "Leave-Battle-Confirm", threshold=self.task.threshold, limit=1)  # 在确认页面中匹配确认离开按钮。
         self.assertTrue(boxes)  # 确认模板能够稳定找到用户标注的按钮。
+
+    @unittest.skipUnless(os.path.isfile("ok_templates/23.png"), "Continue-battle confirmation screenshot is not available.")  # 仅在本地二十三号截图存在时运行全图识别验证。
+    def test_continue_battle_button_matches_full_screen_on_confirmation(self):  # 验证继续战斗按钮能在确认框中心被全图识别。
+        matching_config = config["template_matching"]  # 读取应用真实模板引擎参数。
+        feature_set = FeatureSet(False, matching_config["coco_feature_json"], default_horizontal_variance=matching_config["default_horizontal_variance"], default_vertical_variance=matching_config["default_vertical_variance"], default_threshold=matching_config["default_threshold"])  # 创建与正式任务一致的模板引擎。
+        frame = make_bottom_right_black(cv2.imread("ok_templates/23.png"))  # 按正式截图预处理方式加载二十三号确认框截图。
+        self.task.executor.feature_set = feature_set  # 将任务连接到真实模板引擎以执行全图匹配。
+        self.task.executor.frame = frame  # 把二十三号截图设置为任务正在处理的最新帧。
+        self.task.executor.method.width = frame.shape[1]  # 提供全屏搜索框计算所需的画面宽度。
+        self.task.executor.method.height = frame.shape[0]  # 提供全屏搜索框计算所需的画面高度。
+        button = self.task.find_one("Continue-Battle", threshold=self.task.threshold)  # 使用任务覆盖后的全图搜索识别继续战斗按钮。
+        self.assertIsNotNone(button)  # 确认默认局部搜索无法覆盖的中心确认框也能命中。
+        self.assertGreaterEqual(button.confidence, self.task.threshold)  # 确认全图匹配分数达到正式阈值。
 
     def test_map_selects_nearest_recognized_area_without_requiring_all_four(self):  # 验证只识别到部分区域时也会选择其中最近的一个。
         map_overview = Box(0, 0, 300, 300, name="Map-Overview")  # 构造十九号截图标注对应的主地图范围。
@@ -121,7 +135,7 @@ class TestAutoPveBattleTask(unittest.TestCase):  # 定义不共享全局应用�
         find_cursor.assert_called_once_with(map_overview)  # 确认舰船光标只在十九号截图框定的主地图范围内查找。
         for feature_name in ("Area-A", "Area-B", "Area-C", "Area-D"):  # 逐一检查四个区域的颜色识别范围。
             find_area.assert_any_call(feature_name, map_overview)  # 确认每个区域都限制在主地图范围内并返回颜色。
-        click.assert_called_once_with(area_d, after_sleep=1)  # 确认任务点击实际识别结果中距离最近的 D 区。
+        click.assert_called_once_with(area_d, after_sleep=3)  # 确认任务点击最近区域后等待三秒再关闭地图。
         log_info.assert_called_once_with("选择最近占领区 Area-D，颜色为 gray。")  # 确认导航日志包含识别到的字母颜色。
 
     def test_area_recognition_returns_highest_scoring_color(self):  # 验证单个区域会比较三种颜色并返回最高分颜色。
@@ -136,7 +150,7 @@ class TestAutoPveBattleTask(unittest.TestCase):  # 定义不共享全局应用�
         self.assertEqual(3, find_one.call_count)  # 确认绿色、红色和灰色模板都参与比较。
         for match_call in find_one.call_args_list:  # 检查每一种颜色调用都使用正式匹配范围和阈值。
             self.assertEqual("Area-A", match_call.args[0])  # 确认颜色变体仍使用原字母特征名称。
-            self.assertEqual(0.8, match_call.kwargs["threshold"])  # 确认颜色识别遵循任务配置阈值。
+            self.assertEqual(0.75, match_call.kwargs["threshold"])  # 确认颜色识别使用更宽松的大地图专用阈值。
             self.assertIs(map_overview, match_call.kwargs["box"])  # 确认颜色识别限制在主地图范围内。
             self.assertIsInstance(match_call.kwargs["template"], np.ndarray)  # 确认每次调用都把转换后的模板交给框架原生接口。
 
@@ -158,7 +172,25 @@ class TestAutoPveBattleTask(unittest.TestCase):  # 定义不共享全局应用�
         enemy_base = Box(700, 150, 20, 20, name="Enemy-Base")  # 构造敌方基地匹配结果。
         with patch.object(self.task, "wait_until", return_value=True), patch.object(self.task, "next_frame"), patch.object(self.task, "get_box_by_name", return_value=map_overview), patch.object(self.task, "_find_rotated_ship_cursor", return_value=None), patch.object(self.task, "_find_area", return_value=(None, None)), patch.object(self.task, "find_one", side_effect=lambda name, **kwargs: enemy_base if name == "Enemy-Base" else None), patch.object(self.task, "click") as click, patch.object(self.task, "_close_map"):  # 模拟只识别到敌方基地的地图。
             self.task._handle_map()  # 执行一次地图航点选择。
-        click.assert_called_once_with(enemy_base, after_sleep=1)  # 确认任务直接点击敌方基地。
+        click.assert_called_once_with(enemy_base, after_sleep=3)  # 确认任务点击敌方基地后等待三秒再关闭地图。
+
+    def test_map_prefers_higher_scoring_enemy_base_over_false_areas(self):  # 验证占领区和敌方基地同时命中时选择更高分的一类。
+        map_overview = Box(100, 100, 800, 600, name="Map-Overview")  # 构造主地图范围。
+        cursor = Box(120, 500, 10, 10, name="My-Ship-Cursor")  # 构造舰船光标以便走占领区分支时也能点击。
+        area_a = Box(200, 500, 10, 10, confidence=0.83, name="Area-A")  # 构造较低分的灰色占领区误识别。
+        enemy_base = Box(700, 150, 20, 20, confidence=0.93, name="Enemy-Base")  # 构造更高分的敌方基地匹配。
+        with patch.object(self.task, "wait_until", return_value=True), patch.object(self.task, "next_frame"), patch.object(self.task, "get_box_by_name", return_value=map_overview), patch.object(self.task, "_find_rotated_ship_cursor", return_value=cursor), patch.object(self.task, "_find_area", side_effect=lambda name, box: (area_a, "gray") if name == "Area-A" else (None, None)), patch.object(self.task, "find_one", side_effect=lambda name, **kwargs: enemy_base if name == "Enemy-Base" else None), patch.object(self.task, "click") as click, patch.object(self.task, "_close_map"), patch.object(self.task, "log_info"):  # 模拟二十二号截图这类两点图同时出现占领区误识别。
+            self.task._handle_map()  # 执行一次地图航点选择。
+        click.assert_called_once_with(enemy_base, after_sleep=3)  # 确认更高分的敌方基地覆盖了较低分的占领区。
+
+    def test_map_prefers_higher_scoring_areas_over_enemy_base(self):  # 验证占领区分数更高时忽略同时命中的敌方基地。
+        map_overview = Box(0, 0, 300, 300, name="Map-Overview")  # 构造主地图范围。
+        cursor = Box(0, 0, 10, 10, name="My-Ship-Cursor")  # 构造舰船光标位置。
+        area_d = Box(20, 0, 10, 10, confidence=0.96, name="Area-D")  # 构造更高分的灰色占领区。
+        enemy_base = Box(200, 200, 20, 20, confidence=0.80, name="Enemy-Base")  # 构造较低分的敌方基地误识别。
+        with patch.object(self.task, "wait_until", return_value=True), patch.object(self.task, "next_frame"), patch.object(self.task, "get_box_by_name", return_value=map_overview), patch.object(self.task, "_find_rotated_ship_cursor", return_value=cursor), patch.object(self.task, "_find_area", side_effect=lambda name, box: (area_d, "gray") if name == "Area-D" else (None, None)), patch.object(self.task, "find_one", side_effect=lambda name, **kwargs: enemy_base if name == "Enemy-Base" else None), patch.object(self.task, "click") as click, patch.object(self.task, "_close_map"), patch.object(self.task, "log_info"):  # 模拟四点图同时出现敌方基地误识别。
+            self.task._handle_map()  # 执行一次地图航点选择。
+        click.assert_called_once_with(area_d, after_sleep=3)  # 确认更高分的占领区覆盖了较低分的敌方基地。
 
     @unittest.skipUnless(all(os.path.isfile(f"ok_templates/{name}.png") for name in (14, 17, 19)), "Rotated cursor reference screenshots are not available.")  # 仅在三张地图参考截图齐全时运行旋转匹配验证。
     def test_rotated_ship_cursor_matches_reference_maps(self):  # 验证不同朝向的舰船光标都能通过旋转模板识别。
@@ -187,22 +219,42 @@ class TestAutoPveBattleTask(unittest.TestCase):  # 定义不共享全局应用�
             with self.subTest(cursor=cursor.name):  # 在失败信息中标明当前舰船起始方位。
                 with patch.object(self.task, "wait_until", return_value=True), patch.object(self.task, "next_frame"), patch.object(self.task, "get_box_by_name", return_value=map_overview), patch.object(self.task, "_find_rotated_ship_cursor", return_value=cursor), patch.object(self.task, "_find_area", return_value=(None, None)), patch.object(self.task, "find_one", return_value=None), patch.object(self.task, "click") as click, patch.object(self.task, "_close_map"):  # 模拟没有任何区域或基地匹配的地图。
                     self.task._handle_map()  # 执行地图对侧航点选择。
-                click.assert_called_once_with(*expected_point, name="opposite-map-side", after_sleep=1)  # 确认点击主地图内与舰船中心对称的位置。
+                click.assert_called_once_with(*expected_point, name="opposite-map-side", after_sleep=3)  # 确认点击中心对称位置后等待三秒再关闭地图。
 
     def test_close_map_uses_m_when_escape_does_not_close_it(self):  # 验证 ESC 未关闭大地图时使用 M 键兜底。
-        with patch.object(self.task, "send_key") as send_key, patch.object(self.task, "next_frame"), patch.object(self.task, "_map_is_visible", return_value=True), patch.object(self.task, "log_warning"):  # 模拟按下 ESC 后独特大地图组合仍然存在。
-            self.task._close_map()  # 执行带结果确认的地图关闭流程。
-        self.assertEqual([call("esc", after_sleep=2), call("m", after_sleep=2)], send_key.call_args_list)  # 确认先遵循工作流按 ESC 再用 M 恢复。
+        with patch.object(self.task, "send_key") as send_key, patch.object(self.task, "wait_until", side_effect=(None, True)) as wait_until, patch.object(self.task, "log_warning"), patch.object(self.task, "log_error"):  # 模拟 ESC 等待超时而 M 键成功关闭地图。
+            self.assertTrue(self.task._close_map())  # 执行带两阶段等待确认的地图关闭流程。
+        self.assertEqual([call("esc", after_sleep=1), call("m", after_sleep=1)], send_key.call_args_list)  # 确认先按 ESC 等待再用 M 恢复。
+        self.assertEqual(2, wait_until.call_count)  # 确认 ESC 和 M 之后都执行了最长八秒的状态等待。
 
-    def test_leave_battle_confirms_and_rejoins_without_preparation(self):  # 验证击沉后确认离开并直接加入下一场战斗。
-        with patch.object(self.task, "wait_click_feature", side_effect=[True, True, True]) as wait_click, patch.object(self.task, "_prepare_and_join_first_battle") as prepare, patch.object(self.task, "log_error"):  # 模拟离开、确认和直接加入都成功。
-            self.assertTrue(self.task._leave_battle_and_rejoin())  # 执行击沉后的恢复流程并确认成功。
-        self.assertEqual([  # 确认三个按钮严格按页面出现顺序点击。
-            call("Leave-Battle", threshold=0.8, time_out=10, raise_if_not_found=False, after_sleep=1),  # 先点击十二号截图中的离开战斗入口。
-            call("Confirm-Leaving-Battle", threshold=0.8, time_out=10, raise_if_not_found=False, after_sleep=3),  # 再点击十三号截图中的确认按钮。
-            call("Join-Battle", threshold=0.8, time_out=30, raise_if_not_found=False, after_sleep=2),  # 回到二号截图后直接点击加入战斗。
-        ], wait_click.call_args_list)  # 对比实际按钮调用顺序和参数。
-        prepare.assert_not_called()  # 确认恢复流程没有重新执行选船、模式、加成和旗子准备。
+    def test_close_map_does_not_send_m_when_escape_returns_to_battle(self):  # 验证 ESC 在延长等待内生效时不会多按 M 重新打开地图。
+        with patch.object(self.task, "send_key") as send_key, patch.object(self.task, "wait_until", return_value=True), patch.object(self.task, "log_warning"):  # 模拟 ESC 后地图特征在等待过程中正常消失。
+            self.assertTrue(self.task._close_map())  # 执行正常地图关闭流程。
+        send_key.assert_called_once_with("esc", after_sleep=1)  # 确认正常返回战斗后不会发送多余的地图切换键。
+
+    def test_leave_battle_presses_esc_and_clicks_continue_when_count_not_full(self):  # 验证击沉后按 ESC，场次未满时点击继续战斗。
+        continue_button = Box(10, 10, 20, 20, name="Continue-Battle")  # 构造 ESC 后出现的继续战斗按钮。
+        with patch.object(self.task, "send_key") as send_key, patch.object(self.task, "wait_until", return_value=(continue_button, None)), patch.object(self.task, "click") as click, patch.object(self.task, "wait_click_feature") as wait_click, patch.object(self.task, "log_error"):  # 隔离按键、后续页面等待和真实点击。
+            self.assertEqual("continued", self.task._handle_leave_battle(True))  # 场次未满时应报告已经点击继续战斗。
+        send_key.assert_called_once_with("esc", after_sleep=1)  # 确认只按 ESC 打开后续页面而不是点击离开战斗入口。
+        click.assert_called_once_with(continue_button, after_sleep=2)  # 确认点击了继续战斗按钮。
+        wait_click.assert_not_called()  # 确认场次未满且有继续按钮时不会再点确认离开。
+
+    def test_leave_battle_clicks_confirm_when_count_is_full(self):  # 验证场次已满时即使出现继续战斗也改为确认离开。
+        continue_button = Box(10, 10, 20, 20, name="Continue-Battle")  # 构造后续页面中的继续战斗按钮。
+        confirm_button = Box(40, 10, 20, 20, name="Leave-Battle-Confirm")  # 构造后续页面中的确认离开按钮。
+        with patch.object(self.task, "send_key") as send_key, patch.object(self.task, "wait_until", return_value=(continue_button, confirm_button)), patch.object(self.task, "click") as click, patch.object(self.task, "wait_click_feature") as wait_click, patch.object(self.task, "log_error"):  # 隔离按键、后续页面等待和真实点击。
+            self.assertEqual("left", self.task._handle_leave_battle(False))  # 场次已满时应报告已经确认离开。
+        send_key.assert_called_once_with("esc", after_sleep=1)  # 确认仍然只按 ESC 打开后续页面。
+        click.assert_called_once_with(confirm_button, after_sleep=3)  # 确认点击了确认离开而不是继续战斗。
+        wait_click.assert_not_called()  # 确认当前帧已有确认按钮时不会再额外等待点击。
+
+    def test_leave_battle_clicks_confirm_when_continue_is_missing(self):  # 验证后续页面没有继续战斗按钮时确认离开。
+        confirm_button = Box(40, 10, 20, 20, name="Leave-Battle-Confirm")  # 构造只有确认离开按钮的后续页面。
+        with patch.object(self.task, "send_key"), patch.object(self.task, "wait_until", return_value=(None, confirm_button)), patch.object(self.task, "click") as click, patch.object(self.task, "wait_click_feature") as wait_click, patch.object(self.task, "log_error"):  # 隔离按键、后续页面等待和真实点击。
+            self.assertEqual("left", self.task._handle_leave_battle(True))  # 没有继续按钮时应报告已经确认离开。
+        click.assert_called_once_with(confirm_button, after_sleep=3)  # 确认点击了确认离开按钮。
+        wait_click.assert_not_called()  # 确认当前帧已有确认按钮时不会再额外等待点击。
 
     def test_navigation_sends_exactly_ten_forward_keys_once(self):  # 验证单次航行初始化只发送十次前进键。
         with patch.object(self.task, "send_key") as send_key, patch.object(self.task, "_handle_map", return_value=True):  # 隔离真实键盘输入和地图处理。
@@ -211,26 +263,65 @@ class TestAutoPveBattleTask(unittest.TestCase):  # 定义不共享全局应用�
         self.assertEqual(10, len(forward_calls))  # 确认前进键严格发送十次。
         send_key.assert_any_call("m", after_sleep=2)  # 确认十次前进后仍会发送 M 键打开地图。
 
+    def test_battle_actions_rotate_left_click_r_and_t(self):  # 验证战斗输入严格按鼠标左键、R、T 循环发送。
+        action_index = 0  # 从循环中的鼠标左键位置开始。
+        with patch.object(self.task, "click_relative") as click_relative, patch.object(self.task, "send_key") as send_key:  # 隔离真实鼠标和键盘输入。
+            for _ in range(4):  # 连续执行四次以覆盖一轮以及下一轮的首项。
+                action_index = self.task._send_battle_action(action_index)  # 发送当前动作并保存下一循环位置。
+        self.assertEqual(1, action_index)  # 第四次左键后下一项应再次轮到 R。
+        self.assertEqual([call(0.5, 0.5, move=False, name="battle_fire"), call(0.5, 0.5, move=False, name="battle_fire")], click_relative.call_args_list)  # 确认第一和第四次输入都是屏幕中心左键。
+        self.assertEqual([call("r"), call("t")], send_key.call_args_list)  # 确认两个键盘输入按 R、T 的顺序各发送一次。
+
+    def test_battle_action_loop_waits_one_second_between_inputs(self):  # 验证战斗状态机在每项轮换输入后固定等待一秒。
+        scenes = iter(("battle", "battle", "battle", "battle", "result"))  # 模拟初始化后连续三个战斗输入周期并进入结算页。
+        with patch.object(self.task, "_detect_scene", side_effect=lambda: next(scenes)), patch.object(self.task, "_initialize_battle_navigation"), patch.object(self.task, "_send_battle_action", side_effect=(1, 2, 0)) as send_action, patch.object(self.task, "sleep") as sleep:  # 隔离导航、输入和真实等待。
+            self.assertTrue(self.task._run_until_result())  # 运行状态机直到模拟的结算页。
+        self.assertEqual([call(0), call(1), call(2)], send_action.call_args_list)  # 确认状态机依次推进左键、R、T 三个输入位置。
+        self.assertEqual([call(1), call(1), call(1)], sleep.call_args_list)  # 确认每个输入周期后都固定等待一秒。
+
     def test_start_button_time_fallback_initializes_dynamic_battle_hud(self):  # 验证不同舰船导致 HUD 模板失配时仍能执行前进初始化。
         scenes = iter(("battle_start", "unknown", "result"))  # 模拟点击开始后 HUD 一直无法模板识别再进入结算的状态序列。
         with patch.object(self.task, "_detect_scene", side_effect=lambda: next(scenes)), patch.object(self.task, "wait_click_feature", return_value=True), patch.object(self.task, "_initialize_battle_navigation") as initialize, patch("src.tasks.AutoPveBattleTask.time.monotonic", side_effect=(0, 31)):  # 模拟三十秒加载回退并隔离真实输入。
             self.assertTrue(self.task._run_until_result())  # 确认状态机最终能够继续运行到结算页。
         initialize.assert_called_once_with()  # 确认回退逻辑只执行一次十次前进初始化。
 
-    def test_rejoined_battle_runs_navigation_initialization_again(self):  # 验证离开击沉页面并重新加入后会初始化新一场战斗。
+    def test_leave_battle_stops_firing_and_does_not_click_leave_button(self):  # 验证识别到离开战斗入口后立即停止开火循环。
+        scenes = iter(("leave_battle",))  # 模拟当前已经出现离开战斗入口。
+        with patch.object(self.task, "_detect_scene", side_effect=lambda: next(scenes)), patch.object(self.task, "_handle_leave_battle", return_value="continued") as handle_leave, patch.object(self.task, "_send_battle_action") as send_action, patch.object(self.task, "wait_click_feature") as wait_click:  # 隔离击沉处理和战斗输入。
+            self.assertEqual("continued", self.task._run_until_result(True))  # 场次未满时击沉后续战应直接结束本场循环。
+        handle_leave.assert_called_once_with(True)  # 确认把未满场次的信息交给击沉处理。
+        send_action.assert_not_called()  # 确认不会启动每秒鼠标左键、R、T 的战斗输入。
+        wait_click.assert_not_called()  # 确认不会点击离开战斗入口本身。
+
+    def test_rejoined_battle_runs_navigation_initialization_again(self):  # 验证确认离开后重新加入会初始化新一场战斗。
         scenes = iter(("battle", "leave_battle", "battle", "result"))  # 模拟当前战斗、击沉离开、新战斗和最终结算的状态序列。
-        with patch.object(self.task, "_detect_scene", side_effect=lambda: next(scenes)), patch.object(self.task, "_leave_battle_and_rejoin", return_value=True) as rejoin, patch.object(self.task, "_initialize_battle_navigation") as initialize:  # 隔离实际按钮点击和键盘地图操作。
-            self.assertTrue(self.task._run_until_result())  # 执行包含击沉重开的完整状态机片段。
-        rejoin.assert_called_once_with()  # 确认击沉页面只执行一次离开并直接重开流程。
+        with patch.object(self.task, "_detect_scene", side_effect=lambda: next(scenes)), patch.object(self.task, "_handle_leave_battle", return_value="left") as leave, patch.object(self.task, "_initialize_battle_navigation") as initialize:  # 隔离实际按钮点击和键盘地图操作。
+            self.assertTrue(self.task._run_until_result(True))  # 执行包含击沉重开的完整状态机片段。
+        leave.assert_called_once_with(True)  # 确认击沉页面只执行一次 ESC 后续处理。
         self.assertEqual(2, initialize.call_count)  # 确认新一场战斗不会沿用上一场的航行初始化状态。
+
+    def test_run_brings_game_to_foreground(self):  # 验证启动任务后会先把游戏窗口切换到前台。
+        with patch.object(self.task, "ensure_in_front") as bring_front, patch.object(self.task, "_return_to_main", return_value=False), patch.object(self.task, "log_info"), patch.object(self.task, "log_error"):  # 隔离窗口切换和后续准备流程，只验证启动动作。
+            self.task.run()  # 执行会在无法回到主界面时提前结束的任务主流程。
+        bring_front.assert_called_once()  # 确认任务一开始就会把游戏切到前台。
 
     def test_run_counts_results_and_only_continues_when_needed(self):  # 验证战斗计数达到目标前才点击继续战斗。
         self.task.config["Battle Count"] = 2  # 将本次测试目标设置为两场战斗。
         run_until_result = MagicMock(return_value=True)  # 模拟每一场战斗都成功到达结算页。
-        with patch.object(self.task, "_return_to_main", return_value=True), patch.object(self.task, "_prepare_and_join_first_battle", return_value=True), patch.object(self.task, "_run_until_result", run_until_result), patch.object(self.task, "wait_click_feature", return_value=True) as wait_click, patch.object(self.task, "log_info"), patch.object(self.task, "log_error"):  # 隔离真实游戏输入和日志状态并运行计数逻辑。
+        with patch.object(self.task, "ensure_in_front"), patch.object(self.task, "_return_to_main", return_value=True), patch.object(self.task, "_prepare_and_join_first_battle", return_value=True), patch.object(self.task, "_run_until_result", run_until_result), patch.object(self.task, "wait_click_feature", return_value=True) as wait_click, patch.object(self.task, "log_info"), patch.object(self.task, "log_error"):  # 隔离真实游戏输入和日志状态并运行计数逻辑。
             self.task.run()  # 执行设置为两场的任务主流程。
-        self.assertEqual(2, run_until_result.call_count)  # 确认两场战斗都被计入并处理。
-        wait_click.assert_called_once_with("continue-battle-button", threshold=0.8, time_out=30, raise_if_not_found=False, after_sleep=2)  # 确认只在第一场结束后点击一次继续战斗。
+        self.assertEqual([call(True), call(False)], run_until_result.call_args_list)  # 确认第二场已经把场次将满的信息传给战斗循环。
+        self.assertEqual([  # 确认第一场继续战斗而最后一场明确返回港口。
+            call("Continue-Battle", threshold=0.8, time_out=30, raise_if_not_found=False, after_sleep=2),  # 第一场结束后进入下一次排队。
+            call("Back-To-Port", threshold=0.8, time_out=30, raise_if_not_found=False, after_sleep=3),  # 达到目标场数后回到港口再结束任务。
+        ], wait_click.call_args_list)  # 对比实际结算页按钮调用顺序和参数。
+
+    def test_run_skips_result_clicks_when_sunk_flow_already_acted(self):  # 验证击沉后续战或离开后不会再点结算页按钮。
+        self.task.config["Battle Count"] = 2  # 将本次测试目标设置为两场战斗。
+        outcomes = iter(("continued", "left"))  # 模拟第一场击沉后续战、第二场确认离开返回港口。
+        with patch.object(self.task, "ensure_in_front"), patch.object(self.task, "_return_to_main", return_value=True), patch.object(self.task, "_prepare_and_join_first_battle", return_value=True), patch.object(self.task, "_run_until_result", side_effect=lambda can_continue=True: next(outcomes)), patch.object(self.task, "wait_click_feature") as wait_click, patch.object(self.task, "log_info"), patch.object(self.task, "log_error"):  # 隔离真实游戏输入并运行击沉后的计数逻辑。
+            self.task.run()  # 执行设置为两场且都走击沉后续页面的任务主流程。
+        wait_click.assert_not_called()  # 确认已经点击过继续或确认离开后不会再点结算页按钮。
 
 
 if __name__ == "__main__":  # 支持直接运行本测试文件。

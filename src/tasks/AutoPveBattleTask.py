@@ -1,5 +1,4 @@
 import math  # 导入数学函数以计算旋转后模板的完整边界尺寸。
-import random  # 导入随机数模块以生成战斗中的开火间隔。
 import time  # 导入时间模块以限制无法识别界面的等待时长。
 
 import cv2  # 导入 OpenCV 以旋转舰船光标模板。
@@ -12,6 +11,9 @@ from src.tasks.MyBaseTask import MyBaseTask  # 导入项目本地任务基类。
 class AutoPveBattleTask(MyBaseTask):  # 定义自动完成 PVE 战斗的一次性任务。
 
     AREA_COLOR_HSV = {"green": (78, 171), "red": (6, 255), "gray": (0, 0)}  # 定义占领区绿色、红色和灰色模板使用的 OpenCV 色相与饱和度。
+    MAP_TEMPLATE_THRESHOLD = 0.75  # 为大地图元素使用略低于全局默认值的专用阈值以减少动态画面漏识别。
+    MAP_POINT_SETTLE_SECONDS = 3  # 点击地图航点后等待标记和路线动画稳定再尝试关闭地图。
+    MAP_RETURN_TIMEOUT = 8  # 按返回键后最多等待八秒确认大地图已经消失。
 
     def __init__(self, *args, **kwargs):  # 初始化任务元数据和可配置参数。
         super().__init__(*args, **kwargs)  # 首先初始化 ok-script 的基础任务能力。
@@ -38,7 +40,20 @@ class AutoPveBattleTask(MyBaseTask):  # 定义自动完成 PVE 战斗的一次�
     def threshold(self):  # 读取并转换当前模板匹配阈值。
         return float(self.config.get("Template Threshold", 0.8))  # 从任务配置中取得匹配阈值。
 
+    @property  # 将大地图专用匹配阈值暴露为便于内部复用的只读属性。
+    def map_threshold(self):  # 读取不会高于零点七五的大地图匹配阈值。
+        return min(self.threshold, self.MAP_TEMPLATE_THRESHOLD)  # 用户设置更低阈值时仍尊重其配置。
+
+    def find_one(self, feature_name=None, horizontal_variance=0, vertical_variance=0, threshold=0, **kwargs):  # 继续战斗按钮会出现在结算页和确认框的不同位置。
+        if feature_name == "Continue-Battle":  # 仅对继续战斗按钮改用全图搜索。
+            if horizontal_variance == 0:  # 调用方未指定水平范围时覆盖默认的局部偏移。
+                horizontal_variance = 1  # 使用整屏宽度搜索按钮。
+            if vertical_variance == 0:  # 调用方未指定垂直范围时覆盖默认的局部偏移。
+                vertical_variance = 1  # 使用整屏高度搜索按钮。
+        return super().find_one(feature_name, horizontal_variance=horizontal_variance, vertical_variance=vertical_variance, threshold=threshold, **kwargs)  # 其余元素仍走框架默认的局部模板匹配。
+
     def run(self):  # 按工作流准备舰船并循环完成指定数量的战斗。
+        self.ensure_in_front()  # 启动任务后把游戏窗口切换到前台。
         target_count = int(self.config.get("Battle Count", 1))  # 读取本次任务需要完成的战斗场数。
         completed_count = 0  # 初始化本次任务已完成的战斗计数器。
         self.log_info(f"准备执行 {target_count} 场 PVE 战斗。")  # 记录任务开始和目标场数。
@@ -49,15 +64,25 @@ class AutoPveBattleTask(MyBaseTask):  # 定义自动完成 PVE 战斗的一次�
             self.log_error("第一场战斗准备失败，任务停止。")  # 记录准备流程失败。
             return  # 准备失败时安全结束任务。
         while completed_count < target_count:  # 持续运行战斗循环直到达到用户设置的场数。
-            if not self._run_until_result():  # 处理排队、开战、地图导航和战斗直到结算页。
+            can_continue = completed_count + 1 < target_count  # 当前这一场完成后是否还需要继续战斗。
+            outcome = self._run_until_result(can_continue)  # 处理排队、开战、地图导航和战斗直到本场结束。
+            if not outcome:  # 检查本场是否正常结束。
                 self.log_error("等待战斗结算超时，任务停止。")  # 记录无法继续识别界面的错误。
-                return  # 无法到达结算页时安全结束任务。
-            completed_count += 1  # 到达结算页后把当前战斗计入已完成数量。
+                return  # 无法完成本场时安全结束任务。
+            completed_count += 1  # 本场结束后把当前战斗计入已完成数量。
             self.log_info(f"已完成 {completed_count}/{target_count} 场 PVE 战斗。")  # 更新战斗完成进度日志。
+            if outcome == "continued":  # 击沉后已经在后续页面点击过继续战斗。
+                continue  # 直接进入下一场排队，不再重复点击结算页按钮。
             if completed_count >= target_count:  # 检查是否已经达到用户设定的战斗场数。
+                if outcome == "left":  # 击沉后已经确认离开并返回港口。
+                    self.log_info("已达到设定战斗场数，任务完成。", notify=True)  # 通知用户任务已经完成。
+                    return  # 已在港口时直接结束任务。
+                if not self.wait_click_feature("Back-To-Port", threshold=self.threshold, time_out=30, raise_if_not_found=False, after_sleep=3):  # 最后一场结算后点击回到港口并等待港口界面加载。
+                    self.log_error("没有找到回到港口按钮，任务停止在结算页。")  # 明确记录结束动作未完成而不是误报任务成功。
+                    return  # 保留当前页面供用户检查，避免继续发送不确定输入。
                 self.log_info("已达到设定战斗场数，任务完成。", notify=True)  # 通知用户任务已经完成。
-                return  # 保持在结算页并结束任务。
-            if not self.wait_click_feature("continue-battle-button", threshold=self.threshold, time_out=30, raise_if_not_found=False, after_sleep=2):  # 未达到目标时点击继续战斗进入下一次排队。
+                return  # 已点击回到港口按钮后结束任务。
+            if not self.wait_click_feature("Continue-Battle", threshold=self.threshold, time_out=30, raise_if_not_found=False, after_sleep=2):  # 未达到目标时点击继续战斗进入下一次排队。
                 self.log_error("没有找到继续战斗按钮，任务停止。")  # 记录无法进入下一场战斗的原因。
                 return  # 无法继续战斗时安全结束任务。
 
@@ -100,9 +125,10 @@ class AutoPveBattleTask(MyBaseTask):  # 定义自动完成 PVE 战斗的一次�
             self.send_key("esc", after_sleep=1)  # 返回上一层；若是菜单页面则关闭菜单。
         return False  # 达到最大尝试次数仍未识别主界面时报告失败。
 
-    def _run_until_result(self):  # 从排队开始持续处理状态直到出现战斗结算页面。
+    def _run_until_result(self, can_continue=True):  # 从排队开始持续处理状态直到本场战斗结束。
         battle_initialized = False  # 标记当前战斗是否已经完成前进和地图导航初始化。
         battle_start_clicked_at = None  # 记录点击开始战斗按钮的时间以提供模板识别失败时的回退。
+        battle_action_index = 0  # 从鼠标左键开始记录本场战斗下一项循环输入的位置。
         unknown_since = None  # 记录连续无法识别界面的起始时间。
         while True:  # 持续轮询战斗状态直到结算或超时。
             scene = self._detect_scene()  # 使用当前最新截图判断所在界面。
@@ -116,12 +142,18 @@ class AutoPveBattleTask(MyBaseTask):  # 定义自动完成 PVE 战斗的一次�
             if scene == "queue":  # 排队页面只需要等待系统匹配战斗。
                 self.sleep(2)  # 等待两秒后再检查排队状态。
                 continue  # 排队期间不执行任何游戏操作。
-            if scene == "leave_battle":  # 舰船被击沉后出现离开战斗入口时立即返回港口。
-                if not self._leave_battle_and_rejoin():  # 点击离开、确认，并从主界面直接加入下一场战斗。
-                    return False  # 任一步骤失败时报告流程失败以避免在异常页面误操作。
-                battle_initialized = False  # 新一场战斗需要重新执行前进和地图航点初始化。
-                battle_start_clicked_at = None  # 清除上一场战斗开始按钮的回退计时。
-                continue  # 已直接加入下一场后重新识别排队或开战页面。
+            if scene == "leave_battle":  # 击沉后立即停止开火，按 ESC 处理后续页面。
+                outcome = self._handle_leave_battle(can_continue)  # 按 ESC 后根据场次选择继续战斗或确认离开。
+                if outcome == "continued":  # 后续页面已经点击继续战斗。
+                    return "continued"  # 本场计入完成且下一场已经开始排队。
+                if outcome == "left":  # 后续页面已经确认离开当前战斗。
+                    if not can_continue:  # 场次已满时离开后直接结束本场循环。
+                        return "left"  # 告诉外层已经返回港口，无需再点结算按钮。
+                    battle_initialized = False  # 新一场战斗需要重新执行前进和地图航点初始化。
+                    battle_start_clicked_at = None  # 清除上一场战斗开始按钮的回退计时。
+                    battle_action_index = 0  # 新一场战斗重新从鼠标左键开始轮换输入。
+                    continue  # 返回港口后由主界面分支点击加入战斗。
+                return False  # 后续页面处理失败时停止本场循环。
             if scene == "main":  # 加入战斗后仍停在主界面时视为按钮未成功生效。
                 self.wait_click_feature("Join-Battle", threshold=self.threshold, time_out=10, raise_if_not_found=False, after_sleep=2)  # 再次点击加入战斗以恢复流程。
                 continue  # 点击后重新截图识别游戏状态。
@@ -129,7 +161,7 @@ class AutoPveBattleTask(MyBaseTask):  # 定义自动完成 PVE 战斗的一次�
                 self.send_key("esc", after_sleep=1)  # 按 ESC 返回上一层页面。
                 continue  # 返回后重新截图识别游戏状态。
             if scene == "battle_start":  # 等待战斗开始页面出现开始按钮。
-                if self.wait_click_feature("start-battle-button", threshold=self.threshold, time_out=10, raise_if_not_found=False, after_sleep=2):  # 点击开始战斗按钮进入战斗界面。
+                if self.wait_click_feature("Start-Battle", threshold=self.threshold, time_out=10, raise_if_not_found=False, after_sleep=2):  # 点击开始战斗按钮进入战斗界面。
                     battle_start_clicked_at = time.monotonic()  # 保存成功点击时间用于等待战斗资源加载。
                 continue  # 点击后重新截图识别游戏状态。
             delayed_battle_ready = battle_start_clicked_at is not None and time.monotonic() - battle_start_clicked_at >= 30 and scene == "unknown"  # 点击开始三十秒后允许从未知画面回退判定为战斗已加载。
@@ -145,8 +177,8 @@ class AutoPveBattleTask(MyBaseTask):  # 定义自动完成 PVE 战斗的一次�
                     battle_initialized = True  # 地图处理完成后视为本场已初始化。
                 continue  # 返回战斗界面后重新识别状态。
             if scene == "battle" or (scene == "unknown" and battle_initialized):  # 初始化后把动态 HUD 无法匹配的未知画面也视为战斗过程。
-                self.click_relative(0.5, 0.5, move=False, name="battle_fire")  # 在屏幕中心发送一次鼠标左键点击。
-                self.sleep(random.uniform(1, 5))  # 按工作流随机等待一到五秒后再次开火。
+                battle_action_index = self._send_battle_action(battle_action_index)  # 按鼠标左键、R、T 的顺序发送当前输入并推进轮换位置。
+                self.sleep(1)  # 每次输入后固定等待一秒再识别界面并发送下一项。
                 continue  # 继续检查战斗是否结束。
             if unknown_since is None:  # 第一次进入无法识别的过渡画面时开始计时。
                 unknown_since = time.monotonic()  # 保存单调时钟时间以避免系统时间变化影响。
@@ -154,17 +186,39 @@ class AutoPveBattleTask(MyBaseTask):  # 定义自动完成 PVE 战斗的一次�
                 return False  # 报告战斗流程超时并交由外层停止任务。
             self.sleep(1)  # 对加载画面和短暂动画留出一秒缓冲。
 
-    def _leave_battle_and_rejoin(self):  # 舰船被击沉后离开当前战斗并直接开始下一场。
-        if not self.wait_click_feature("Leave-Battle", threshold=self.threshold, time_out=10, raise_if_not_found=False, after_sleep=1):  # 点击十二号截图中的离开战斗入口。
-            self.log_error("没有找到离开战斗按钮。")  # 记录无法进入离开确认页面的原因。
-            return False  # 未能离开当前战斗时停止恢复流程。
-        if not self.wait_click_feature("Confirm-Leaving-Battle", threshold=self.threshold, time_out=10, raise_if_not_found=False, after_sleep=3):  # 点击十三号截图中的确认离开按钮并等待返回港口。
-            self.log_error("没有找到确认离开战斗按钮。")  # 记录无法确认离开当前战斗的原因。
-            return False  # 未能确认离开时停止恢复流程。
-        if not self.wait_click_feature("Join-Battle", threshold=self.threshold, time_out=30, raise_if_not_found=False, after_sleep=2):  # 回到二号截图的主界面后直接点击加入战斗。
-            self.log_error("离开战斗后没有找到加入战斗按钮。")  # 记录无法直接开始下一场战斗的原因。
-            return False  # 不执行选船、模式、加成或旗子流程并安全停止。
-        return True  # 已直接加入下一场战斗时报告恢复成功。
+    def _send_battle_action(self, action_index):  # 发送当前轮换位置对应的战斗输入并返回下一位置。
+        actions = ("left_click", "r", "t")  # 定义鼠标左键、R、T 的固定循环顺序。
+        action = actions[action_index % len(actions)]  # 把任意输入索引归一化到三项循环内。
+        if action == "left_click":  # 当前轮到鼠标左键时在屏幕中心点击。
+            self.click_relative(0.5, 0.5, move=False, name="battle_fire")  # 在屏幕中心发送一次鼠标左键点击。
+        else:  # 当前轮到 R 或 T 时通过任务输入接口发送按键。
+            self.send_key(action)  # 发送当前小写键名对应的 R 或 T 键。
+        return (action_index + 1) % len(actions)  # 推进并循环下一次输入的位置。
+
+    def _handle_leave_battle(self, can_continue):  # 击沉后停止开火，按 ESC 再根据场次选择继续或离开。
+        self.send_key("esc", after_sleep=1)  # 按 ESC 才会出现继续战斗或确认离开的后续页面。
+        followup = self.wait_until(self._find_leave_followup, time_out=15, raise_if_not_found=False)  # 等待 ESC 后的后续按钮出现。
+        if not followup:  # 检查后续页面是否成功打开。
+            self.log_error("按 ESC 后没有找到继续战斗或确认离开按钮。")  # 记录无法继续处理击沉页面的原因。
+            return False  # 没有后续按钮时停止本场处理。
+        continue_button, confirm_button = followup  # 拆出可能同时存在的继续战斗和确认离开按钮。
+        if can_continue and continue_button is not None:  # 场次未满且识别到继续战斗按钮时点击续战。
+            self.click(continue_button, after_sleep=2)  # 点击继续战斗进入下一场排队。
+            return "continued"  # 告诉外层本场已完成且已经点击续战。
+        if confirm_button is not None:  # 场次已满或没有继续战斗按钮时改为确认离开。
+            self.click(confirm_button, after_sleep=3)  # 点击确认离开战斗按钮。
+            return "left"  # 告诉外层已经确认离开当前战斗。
+        if not self.wait_click_feature("Leave-Battle-Confirm", threshold=self.threshold, time_out=10, raise_if_not_found=False, after_sleep=3):  # 当前帧没有确认按钮时再等待一次。
+            self.log_error("没有找到确认离开战斗按钮。")  # 记录无法离开当前战斗的原因。
+            return False  # 未能确认离开时停止本场处理。
+        return "left"  # 已确认离开当前战斗。
+
+    def _find_leave_followup(self):  # 在 ESC 后的后续页面中查找继续战斗或确认离开按钮。
+        continue_button = self.find_one("Continue-Battle", threshold=self.threshold)  # 使用全图搜索识别可能出现在确认框中的继续战斗按钮。
+        confirm_button = self.find_one("Leave-Battle-Confirm", threshold=self.threshold)  # 识别确认离开战斗按钮。
+        if continue_button is None and confirm_button is None:  # 两个后续按钮都不存在时继续等待。
+            return None  # 告诉等待接口当前帧还不是后续页面。
+        return continue_button, confirm_button  # 把找到的按钮交给击沉处理逻辑选择点击目标。
 
     def _initialize_battle_navigation(self):  # 在战斗开始时完成前进输入并打开地图。
         for _ in range(10):  # 按工作流向游戏发送十次前进键。
@@ -173,7 +227,7 @@ class AutoPveBattleTask(MyBaseTask):  # 定义自动完成 PVE 战斗的一次�
         self._handle_map()  # 在地图上选择最近区域、敌方基地或地图另一侧。
 
     def _handle_map(self):  # 在大地图范围内按区域、基地和对侧位置的优先级选择航点。
-        map_anchor = self.wait_until(self._map_is_visible, time_out=15, raise_if_not_found=False)  # 等待同一帧同时出现舰船铭牌和大地图教程元素。
+        map_anchor = self.wait_until(self._map_is_visible, time_out=20, raise_if_not_found=False)  # 使用专用阈值等待同一帧同时出现舰船铭牌和大地图教程元素。
         if map_anchor is None:  # 检查 M 键是否成功打开了大地图。
             self.log_warning("没有识别到大地图锚点，跳过本次地图选点。")  # 记录地图未成功打开或仍处于加载中的情况。
             return False  # 未确认大地图时不发送 ESC 以免误开战斗菜单。
@@ -181,22 +235,33 @@ class AutoPveBattleTask(MyBaseTask):  # 定义自动完成 PVE 战斗的一次�
         map_overview = self.get_box_by_name("Map-Overview")  # 使用十九号截图标注的矩形确定主地图实际边界。
         ship_cursor = self._find_rotated_ship_cursor(map_overview)  # 仅在主地图内旋转匹配当前舰船光标以排除右下角小地图。
         target_areas = []  # 收集主地图内实际识别到且不是绿色的占领区匹配框及其颜色。
+        area_score = 0  # 记录任意占领区字母的最高置信度，用于和敌方基地互斥比较。
         for area_name in ("Area-A", "Area-B", "Area-C", "Area-D"):  # 逐个识别四个字母及其绿色、红色或灰色状态。
             area_box, area_color = self._find_area(area_name, map_overview)  # 同时取得当前字母的最佳匹配框和颜色。
-            if area_box is not None and area_color in ("gray", "red"):  # 仅把可占领的灰色或敌方红色区域作为导航候选。
+            if area_box is None:  # 当前字母三种颜色都没有达到地图阈值时跳过。
+                continue  # 继续检查下一个占领区字母。
+            area_score = max(area_score, area_box.confidence)  # 用所有字母中的最高分代表占领区图类型。
+            if area_color in ("gray", "red"):  # 仅把可占领的灰色或敌方红色区域作为导航候选。
                 target_areas.append((area_box, area_color))  # 保存匹配框和颜色供选点及日志共同使用。
-        enemy_base = self.find_one("Enemy-Base", threshold=self.threshold, box=map_overview)  # 查找没有占领区时可以使用的敌方基地航点。
+        enemy_base = self.find_one("Enemy-Base", threshold=self.map_threshold, box=map_overview)  # 使用地图专用阈值查找两点图中的敌方基地航点。
+        if enemy_base is not None and area_score > 0:  # 占领区和敌方基地不可能同时属于同一张地图，因此按更高分只保留一类。
+            if area_score >= enemy_base.confidence:  # 占领区最高分不低于敌方基地时按四点图处理。
+                self.log_info(f"占领区最高分 {area_score * 100:.2f}% 高于敌方基地 {enemy_base.confidence * 100:.2f}%，忽略敌方基地。")  # 记录互斥判断结果以便核对误识别。
+                enemy_base = None  # 丢弃较低分的敌方基地匹配。
+            else:  # 敌方基地分数更高时按两点图处理。
+                self.log_info(f"敌方基地 {enemy_base.confidence * 100:.2f}% 高于占领区最高分 {area_score * 100:.2f}%，忽略占领区。")  # 记录互斥判断结果以便核对误识别。
+                target_areas = []  # 丢弃较低分的占领区匹配。
         if ship_cursor is not None and target_areas:  # 舰船位置和至少一个非绿色占领区存在时计算最近目标。
             nearest_area, nearest_color = min(target_areas, key=lambda area: ship_cursor.center_distance(area[0]))  # 用元素中心点距离选出最近的灰色或红色区域并保留其颜色。
             self.log_info(f"选择最近占领区 {nearest_area.name}，颜色为 {nearest_color}。")  # 记录最终选中的字母和识别颜色以便核对导航判断。
-            self.click(nearest_area, after_sleep=1)  # 点击距离舰船光标最近的区域。
+            self.click(nearest_area, after_sleep=self.MAP_POINT_SETTLE_SECONDS)  # 点击最近区域并等待航点标记及路线动画稳定。
         elif enemy_base is not None:  # 没有可选择的占领区但识别到敌方基地时直接进攻基地。
-            self.click(enemy_base, after_sleep=1)  # 点击识别到的敌方基地作为航点。
+            self.click(enemy_base, after_sleep=self.MAP_POINT_SETTLE_SECONDS)  # 点击敌方基地并等待航点标记及路线动画稳定。
         elif ship_cursor is not None:  # 没有识别到占领区或敌方基地时根据舰船位置选择地图另一侧。
             cursor_x, cursor_y = ship_cursor.center()  # 读取当前舰船在主地图中的中心坐标。
             opposite_x = map_overview.x + map_overview.width - (cursor_x - map_overview.x)  # 以主地图中心为轴把舰船水平位置映射到另一侧。
             opposite_y = map_overview.y + map_overview.height - (cursor_y - map_overview.y)  # 以主地图中心为轴把舰船垂直位置映射到另一侧。
-            self.click(opposite_x, opposite_y, name="opposite-map-side", after_sleep=1)  # 点击中心对称点，使下方去上方、左上去右下。
+            self.click(opposite_x, opposite_y, name="opposite-map-side", after_sleep=self.MAP_POINT_SETTLE_SECONDS)  # 点击中心对称点并等待航点标记及路线动画稳定。
         else:  # 舰船光标也缺失时无法可靠判断地图的另一侧。
             self.log_warning("没有识别到舰船光标、占领区或敌方基地，跳过本次地图选点。")  # 避免在无法确定当前位置时误点地图。
         self._close_map()  # 关闭大地图并在 ESC 未生效时使用地图切换键兜底。
@@ -211,7 +276,7 @@ class AutoPveBattleTask(MyBaseTask):  # 定义自动完成 PVE 战斗的一次�
         color_matches = []  # 收集三种颜色中达到正式阈值的匹配结果。
         for color_name, (hue, saturation) in self.AREA_COLOR_HSV.items():  # 分别生成绿色、红色和灰色模板进行完整比较。
             color_template = self._colorize_area_template(area_feature.mat, hue, saturation)  # 保留字母明暗结构并替换成当前候选颜色。
-            color_box = self.find_one(area_name, threshold=self.threshold, box=search_box, template=color_template)  # 使用框架原生模板参数匹配当前颜色变体。
+            color_box = self.find_one(area_name, threshold=self.map_threshold, box=search_box, template=color_template)  # 使用地图专用阈值匹配当前颜色变体。
             if color_box is not None:  # 仅收集达到正式模板阈值的候选颜色。
                 color_matches.append((color_box, color_name))  # 保存候选框和对应颜色供最终按置信度排序。
         return max(color_matches, key=lambda item: item[0].confidence, default=(None, None))  # 返回三种颜色中的最高分匹配框和颜色。
@@ -230,7 +295,7 @@ class AutoPveBattleTask(MyBaseTask):  # 定义自动完成 PVE 战斗的一次�
             return None  # 缺少模板时交给其他地图目标或安全跳过逻辑处理。
         if search_box is None:  # 独立调用没有传入范围时仍使用正式主地图标注。
             search_box = self.get_box_by_name("Map-Overview")  # 从十九号截图标注读取可随分辨率缩放的主地图边界。
-        cursor_threshold = min(self.threshold, 0.7)  # 旋转插值会降低相关系数，因此为光标使用更宽松的专用上限阈值。
+        cursor_threshold = min(self.map_threshold, 0.7)  # 旋转插值会降低相关系数，因此为光标使用更宽松的专用上限阈值。
         matches = []  # 收集所有达到阈值的旋转模板匹配结果。
         for angle in range(0, 360, 45):  # 每隔四十五度匹配一次，仅检查八个主要方向以缩短导航识别耗时。
             rotated_template = self._rotate_template(cursor_feature.mat, angle)  # 生成当前朝向且不裁切边角的光标模板。
@@ -256,25 +321,31 @@ class AutoPveBattleTask(MyBaseTask):  # 定义自动完成 PVE 战斗的一次�
         border_color = tuple(int(channel) for channel in np.median(edge_pixels, axis=0))  # 使用边缘中位色填充旋转产生的空白角落。
         return cv2.warpAffine(template, matrix, (rotated_width, rotated_height), flags=cv2.INTER_LINEAR, borderMode=cv2.BORDER_CONSTANT, borderValue=border_color)  # 生成完整且背景连续的旋转模板。
 
-    def _close_map(self):  # 关闭大地图并确认是否已经回到动态战斗画面。
-        self.send_key("esc", after_sleep=2)  # 优先按工作流要求使用 ESC 返回战斗界面。
-        self.next_frame()  # 获取按键生效后的最新截图用于确认大地图是否仍然可见。
-        if self._map_is_visible():  # 只要大地图教程区域仍然存在就确认地图尚未关闭。
-            self.log_warning("ESC 后大地图仍然可见，改用 M 键关闭地图。")  # 记录地图没有被 ESC 关闭的恢复动作。
-            self.send_key("m", after_sleep=2)  # 使用地图模式切换键兜底返回战斗界面。
+    def _close_map(self):  # 关闭大地图并等待确认已经回到动态战斗画面。
+        self.send_key("esc", after_sleep=1)  # 在航点动画稳定后优先按工作流要求使用 ESC 返回战斗界面。
+        map_closed = self.wait_until(self._map_is_closed, time_out=self.MAP_RETURN_TIMEOUT, raise_if_not_found=False)  # 持续刷新画面而不是固定两秒后只检查一次。
+        if map_closed:  # 大地图特征已经消失时确认 ESC 成功生效。
+            return True  # 报告已回到非地图界面供调用方和测试确认。
+        self.log_warning("ESC 后等待八秒大地图仍然可见，改用 M 键关闭地图。")  # 记录延长等待后仍需执行的恢复动作。
+        self.send_key("m", after_sleep=1)  # 使用地图模式切换键兜底返回战斗界面。
+        map_closed = self.wait_until(self._map_is_closed, time_out=self.MAP_RETURN_TIMEOUT, raise_if_not_found=False)  # 再等待一次并验证 M 键确实关闭了地图。
+        if map_closed:  # 大地图特征在 M 键后已经消失。
+            return True  # 报告兜底关闭成功。
+        self.log_error("M 键后等待八秒仍未回到战斗界面。")  # 两种关闭方式都失败时留下明确诊断日志。
+        return False  # 报告地图关闭失败以便后续状态循环继续恢复。
 
     def _detect_scene(self, refresh=True):  # 根据当前截图中的特有元素判断游戏所处界面。
         if refresh:  # 普通调用需要在判断场景前刷新截图。
             self.next_frame()  # 主动获取一张最新截图供本次场景识别使用。
         if self.find_one("Menu", threshold=self.threshold) is not None:  # 菜单元素具有最高优先级以便正确关闭菜单。
             return "menu"  # 返回菜单场景。
-        if self._has_any(("continue-battle-button", "back-to-port-button")):  # 结算页包含两个可能出现的后续操作按钮。
+        if self._has_any(("Continue-Battle", "Back-To-Port")):  # 结算页包含两个可能出现的后续操作按钮。
             return "result"  # 返回战斗结算场景。
-        if self.find_one("Leave-Battle", threshold=self.threshold) is not None:  # 击沉页面使用底部的离开战斗入口判断。
+        if self.find_one("Leave-Battlefield", threshold=self.threshold) is not None:  # 击沉页面使用底部的离开战斗入口判断。
             return "leave_battle"  # 返回需要离开当前战斗的场景。
         if self.find_one("In-Battle-Queue", threshold=self.threshold) is not None:  # 排队页使用专用状态元素判断。
             return "queue"  # 返回战斗排队场景。
-        if self.find_one("start-battle-button", threshold=self.threshold) is not None:  # 等待开战页使用开始按钮判断。
+        if self.find_one("Start-Battle", threshold=self.threshold) is not None:  # 等待开战页使用开始按钮判断。
             return "battle_start"  # 返回等待战斗开始场景。
         battle_view = self._detect_battle_view()  # 使用舰船铭牌和教程元素组合区分大地图与普通战斗。
         if battle_view is not None:  # 只有舰船铭牌存在时组合判断才属于战斗生命周期页面。
@@ -295,11 +366,14 @@ class AutoPveBattleTask(MyBaseTask):  # 定义自动完成 PVE 战斗的一次�
         return any(self.find_one(feature_name, threshold=self.threshold) is not None for feature_name in feature_names)  # 依次匹配并在发现首个元素时返回真。
 
     def _detect_battle_view(self):  # 使用同一帧中的舰船铭牌和教程元素区分两个战斗页面。
-        nameplate_visible = self.find_one("Libertadad-Nameplate", threshold=self.threshold) is not None  # 检查两个页面都会出现的 Libertad 舰船铭牌。
-        tutorial_visible = self.find_one("Map-Tutorial", threshold=self.threshold) is not None  # 检查仅在大地图出现的右侧教程区域。
+        nameplate_visible = self.find_one("Libertad-Nameplate", threshold=self.map_threshold) is not None  # 使用地图专用阈值检查两个页面都会出现的 Libertad 舰船铭牌。
+        tutorial_visible = self.find_one("Map-Tutorial", threshold=self.map_threshold) is not None  # 使用地图专用阈值检查仅在大地图出现的右侧教程区域。
         if not nameplate_visible and not tutorial_visible:  # 两个候选元素都不存在时说明当前并非需要区分的两个页面。
             return None  # 交给后续其他页面特征继续判断。
         return "map" if nameplate_visible and tutorial_visible else "battle"  # 铭牌与教程同时存在为大地图，否则为普通战斗。
 
     def _map_is_visible(self):  # 判断当前缓存截图是否同时包含大地图所需的两个元素。
         return self._detect_battle_view() == "map"  # 仅组合判断结果为地图时返回真。
+
+    def _map_is_closed(self):  # 判断当前刷新帧中的大地图是否已经消失。
+        return not self._map_is_visible()  # 等待接口在组合地图特征消失后结束轮询。

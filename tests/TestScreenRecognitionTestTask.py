@@ -26,7 +26,7 @@ class TestScreenRecognitionTestTask(unittest.TestCase):  # 定义屏幕识别测
     def test_feature_names_come_from_formal_template_json(self):  # 验证任务会动态覆盖正式模板中的全部元素。
         feature_names = self.task._load_feature_names()  # 从当前正式模板配置读取分类名称。
         self.assertIn("Map-Tutorial", feature_names)  # 确认大地图教程元素包含在检查范围中。
-        self.assertIn("Libertadad-Nameplate", feature_names)  # 确认新增舰船铭牌元素包含在检查范围中。
+        self.assertIn("Libertad-Nameplate", feature_names)  # 确认新增舰船铭牌元素包含在检查范围中。
         self.assertEqual(len(feature_names), len(set(feature_names)))  # 确认元素列表没有重复分类名称。
 
     def test_inspection_checks_one_frame_and_never_sends_input(self):  # 验证单轮检查只截图识别且不会操作游戏。
