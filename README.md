@@ -1,62 +1,57 @@
-# ok-script-app
+# ok-wows
 
 [English](README_en.md) | 中文
 
-ok-script-app 是一个基于 [ok-script](https://github.com/ok-oldking/ok-script) 的 Python 自动化项目模板，支持为 Windows 原生游戏、Android 模拟器和浏览器游戏创建带 GUI 的自动化应用。
+基于 [ok-script](https://github.com/ok-oldking/ok-script) 的《战舰世界》Windows 客户端自动化。当前只做 **PVE 战斗循环**：准备舰船、加入队列、开图选点、战斗输入，打满设定场数后回港。
 
-这个仓库提供任务示例、OCR、模板匹配、配置控件、测试、i18n、EXE 打包和更新发布配置。它是起步工程和功能演示，不是某个具体游戏的自动化成品。
+只识别 `WorldOfWarships64.exe`。标注和开发按 `5120x2160`（比例 `64:27`）完成，最低支持 `1280x720`。
 
-## 文档
+## 功能
 
-完整文档已整理为 MkDocs 网站源文件：
+### Auto PVE Battle
 
-- [文档首页](docs/index.md)
-- [快速开始](docs/getting-started.md)
-- [应用与运行目标配置](docs/configuration.md)
-- [任务开发](docs/tasks.md)
-- [打包与发布](docs/release.md)
-- [构建文档网站](docs/documentation.md)
-- [English documentation](docs/en/index.md)
+一次性任务。启动后把游戏切到前台，用 ESC 回到港口主界面，再按下面流程跑完设定场数。
 
-## 快速预览
+1. 选择第一艘船，打开战斗模式并选 PVE。
+2. 打开加成页：如果能卸加成就全部卸掉，再 ESC 回主界面。
+3. 打开装备页：如果能卸旗子就全部卸掉，再 ESC 回主界面。
+4. 点击加入战斗。排队界面不操作。
+5. 等待开战页出现开始按钮后点击进入战斗。
+6. 连按 10 次 `W`，再按 `M` 打开大地图。
+7. 在主地图范围内选航点：
+   - 识别到灰色或红色占领区时，点离本舰光标最近的一个。
+   - 否则点敌方基地。
+   - 占领区和敌方基地同时命中时，只保留分数更高的一类。
+   - 都没有时，点与本舰光标中心对称的另一侧。
+8. 点完航点后等路线动画稳定，用 ESC 关地图；关不掉再用 `M`。
+9. 战斗中每秒轮换一次：鼠标左键（屏幕中心）、`R`、`T`。
+10. 正常结算且场次未满时点继续战斗；最后一场点回到港口。
+11. 被击沉后立刻停火，按 ESC。场次未满点继续战斗，已满则确认离开。
+
+可在任务配置里改：
+
+- **Battle Count**：打几场后停止，默认 `1`，至少为 `1`。
+- **Template Threshold**：模板匹配阈值，默认 `0.8`。大地图元素上限为 `0.75`，减少动态画面漏识别。
+
+无法回到主界面、准备失败、结算超时或关键按钮找不到时会停下来，并留下日志，避免乱点。
+
+### Screen Recognition Test
+
+只读检查。每 3 秒截一帧，对正式模板里的全部元素打分，并判断当前是主界面、排队、战斗、大地图、结算还是离开战斗等场景。不发送任何键鼠。用来核对标注和阈值。
+
+## 使用
+
+需要 Windows、Python 3.12，以及已经打开的战舰世界客户端。游戏如果以管理员权限运行，本程序也要用同样权限启动，否则截图或输入可能无效。
 
 ```powershell
 py -3.12 -m venv .venv
 .\.venv\Scripts\Activate.ps1
-$PypiIndex = "https://pypi.org/simple/"
-python -m pip install --index-url $PypiIndex --upgrade pip
-python -m pip install --index-url $PypiIndex --no-deps --upgrade -r requirements.txt
+python -m pip install --index-url https://pypi.org/simple/ --upgrade pip
+python -m pip install --index-url https://pypi.org/simple/ --no-deps --upgrade -r requirements.txt
 python main_debug.py
 ```
 
-直接依赖统一维护在 `pyproject.toml`。`requirements.txt` 是 Qt profile 的锁定
-文件，`requirements-web.txt` 是 Web profile 的锁定文件；请勿直接编辑这些
-生成文件。Web profile 请将上面的依赖和启动命令分别替换为
-`requirements-web.txt` 和 `python web_main_debug.py`。官方 PyPI 的 pip 索引地址
-必须包含 `/simple/`；`https://pypi.org/` 不是有效的包索引地址。
-
-详细的仓库初始化、目标配置、首个任务和 tag 打包流程请阅读[快速开始](docs/getting-started.md)。
-
-## 构建文档网站
-
-```powershell
-python -m pip install --index-url https://pypi.org/simple/ -r requirements-docs.txt
-python -m mkdocs serve
-```
-
-访问 `http://127.0.0.1:8000/` 预览。生成静态 HTML：
-
-```powershell
-python -m mkdocs build --strict
-```
-
-输出位于 `site/`。`.github/workflows/docs.yml` 可将网站自动发布到 GitHub Pages，具体设置见[文档网站说明](docs/documentation.md)。
-
-## 社区
-
-- 用户群：`1097603920`
-- 开发者群：`938132715`
-- [Discord](https://discord.gg/vVyCatEBgA)
+启动后选中游戏窗口，打开 **Auto PVE Battle**，设好场数再运行。想先确认识别是否正常，先跑 **Screen Recognition Test**。
 
 ## 致谢
 
