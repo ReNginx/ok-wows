@@ -43,6 +43,12 @@
             "height": 1600
         },
         {
+            "id": 8,
+            "file_name": "images/0.png",
+            "width": 2560,
+            "height": 1600
+        },
+        {
             "id": 9,
             "file_name": "images/1.png",
             "width": 2560,
@@ -199,7 +205,7 @@
         {
             "id": 9,
             "image_id": 4,
-            "category_id": 9,
+            "category_id": 31,
             "bbox": [
                 1176,
                 1509,
@@ -212,7 +218,7 @@
         {
             "id": 10,
             "image_id": 5,
-            "category_id": 10,
+            "category_id": 9,
             "bbox": [
                 1177,
                 1549,
@@ -225,7 +231,7 @@
         {
             "id": 11,
             "image_id": 6,
-            "category_id": 24,
+            "category_id": 20,
             "bbox": [
                 11,
                 1296,
@@ -303,7 +309,7 @@
         {
             "id": 17,
             "image_id": 9,
-            "category_id": 20,
+            "category_id": 19,
             "bbox": [
                 1308,
                 1514,
@@ -316,7 +322,7 @@
         {
             "id": 18,
             "image_id": 11,
-            "category_id": 18,
+            "category_id": 11,
             "bbox": [
                 1174,
                 1441,
@@ -329,7 +335,7 @@
         {
             "id": 19,
             "image_id": 11,
-            "category_id": 19,
+            "category_id": 18,
             "bbox": [
                 1966,
                 1442,
@@ -394,7 +400,7 @@
         {
             "id": 24,
             "image_id": 10,
-            "category_id": 11,
+            "category_id": 10,
             "bbox": [
                 1203,
                 696,
@@ -407,7 +413,7 @@
         {
             "id": 25,
             "image_id": 10,
-            "category_id": 25,
+            "category_id": 24,
             "bbox": [
                 1007,
                 752,
@@ -420,7 +426,7 @@
         {
             "id": 26,
             "image_id": 10,
-            "category_id": 26,
+            "category_id": 25,
             "bbox": [
                 1390,
                 752,
@@ -458,15 +464,15 @@
         },
         {
             "id": 29,
-            "image_id": 7,
+            "image_id": 8,
             "category_id": 29,
             "bbox": [
-                1852,
-                1298,
-                67,
-                68
+                1198,
+                477,
+                23,
+                26
             ],
-            "area": 4556,
+            "area": 598,
             "iscrowd": 0
         },
         {
@@ -526,17 +532,17 @@
         },
         {
             "id": 9,
-            "name": "Leave-Queue",
-            "supercategory": ""
-        },
-        {
-            "id": 10,
             "name": "Start-Battle",
             "supercategory": ""
         },
         {
-            "id": 11,
+            "id": 10,
             "name": "Leave-Battle-Title",
+            "supercategory": ""
+        },
+        {
+            "id": 11,
+            "name": "Back-To-Port",
             "supercategory": ""
         },
         {
@@ -571,17 +577,17 @@
         },
         {
             "id": 18,
-            "name": "Back-To-Port",
-            "supercategory": ""
-        },
-        {
-            "id": 19,
             "name": "Continue-Battle",
             "supercategory": ""
         },
         {
-            "id": 20,
+            "id": 19,
             "name": "Leave-Battlefield",
+            "supercategory": ""
+        },
+        {
+            "id": 20,
+            "name": "Libertad-Nameplate",
             "supercategory": ""
         },
         {
@@ -601,16 +607,11 @@
         },
         {
             "id": 24,
-            "name": "Libertad-Nameplate",
-            "supercategory": ""
-        },
-        {
-            "id": 25,
             "name": "Leave-Battle-Confirm",
             "supercategory": ""
         },
         {
-            "id": 26,
+            "id": 25,
             "name": "Continue-Battle-After-Sunk",
             "supercategory": ""
         },
@@ -632,6 +633,11 @@
         {
             "id": 30,
             "name": "Area-D",
+            "supercategory": ""
+        },
+        {
+            "id": 31,
+            "name": "Leave-Queue",
             "supercategory": ""
         }
     ]
