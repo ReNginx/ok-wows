@@ -3,6 +3,7 @@ import time  # 导入时间模块以限制无法识别界面的等待时长。
 
 import cv2  # 导入 OpenCV 以旋转舰船光标模板。
 import numpy as np  # 导入数组工具以计算模板边缘的地图背景色。
+from ok import Box  # 使用截图像素坐标限制舰船图标的搜索范围。
 from qfluentwidgets import FluentIcon  # 导入任务列表中使用的内置图标。
 
 from src.tasks.MyBaseTask import MyBaseTask  # 导入项目本地任务基类。
@@ -59,7 +60,13 @@ class AutoPveBattleTask(MyBaseTask):  # 定义自动完成 PVE 战斗的一次�
     def find_one(self, feature_name=None, horizontal_variance=0, vertical_variance=0, threshold=0, **kwargs):  # 继续战斗和模式按钮的位置可能随页面及开放模式变化。
         if feature_name in self.OPTIONAL_FEATURES and self.get_feature_by_name(feature_name) is None:  # 缺少某个比例的新标注时跳过查询，避免框架抛出模板缺失异常。
             return None  # 缺少模板只表示不能识别该元素，不影响其余已有流程。
-        if feature_name in ("Continue-Battle", "Continue-Battle-After-Sunk", "Ship-Icon", *self.BATTLE_MODES):  # 继续按钮、模式和独立舰船图标使用全图搜索，兼容位置变化。
+        if feature_name == "Ship-Icon" and kwargs.get("box") is None:  # 独立舰船图标只在左侧队伍列表搜索，调用方显式指定范围时沿用其范围。
+            frame = kwargs.get("frame")  # 显式传入截图时按该截图的实际尺寸计算搜索范围。
+            if frame is None:  # 普通调用使用任务当前缓存的截图。
+                frame = self.frame  # 不额外刷新截图，保持整轮场景识别使用同一帧。
+            height, width = frame.shape[:2]  # 直接使用截图尺寸，避免窗口比例修正引入坐标偏移。
+            kwargs["box"] = Box(0, round(height * 0.10), round(width * 0.10), round(height * 0.40), name="Ship-Icon-Search")  # 搜索左侧百分之十、垂直百分之十至五十的队伍列表区域。
+        if feature_name in ("Continue-Battle", "Continue-Battle-After-Sunk", *self.BATTLE_MODES):  # 继续按钮和模式保持全图搜索，兼容位置变化。
             if horizontal_variance == 0:  # 调用方未指定水平范围时覆盖默认的局部偏移。
                 horizontal_variance = 1  # 使用整屏宽度搜索按钮。
             if vertical_variance == 0:  # 调用方未指定垂直范围时覆盖默认的局部偏移。

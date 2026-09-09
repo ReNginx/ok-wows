@@ -85,27 +85,43 @@ class TestBattleEntryFlow(unittest.TestCase):
                                                                  raise_if_not_found=False))
                 click.assert_not_called()
 
-    def test_ship_icon_matches_at_different_screen_positions(self):
-        for x, y in ((80, 60), (4000, 1500)):
-            with self.subTest(position=(x, y)):
+    def test_ship_icon_only_matches_inside_left_team_panel(self):
+        for x, y, expected in ((175, 353, True), (300, 950, True), (80, 60, False),
+                               (4000, 1500, False), (175, 1500, False), (600, 353, False)):
+            with self.subTest(position=(x, y), expected=expected):
                 frame = np.full((2160, 5120, 3), 30, dtype=np.uint8)
                 self.bind_frame(frame)
                 template = self.task.get_feature_by_name("Ship-Icon").mat
                 height, width = template.shape[:2]
                 frame[y:y + height, x:x + width] = template
                 match = self.task.find_one("Ship-Icon", threshold=self.task.map_threshold)
-                self.assertIsNotNone(match)
-                self.assertEqual((x, y), (match.x, match.y))
+                if expected:
+                    self.assertIsNotNone(match)
+                    self.assertEqual((x, y), (match.x, match.y))
+                else:
+                    self.assertIsNone(match)
+
+    def test_ship_icon_explicit_search_box_is_preserved(self):
+        frame = np.full((2160, 5120, 3), 30, dtype=np.uint8)
+        self.bind_frame(frame)
+        template = self.task.get_feature_by_name("Ship-Icon").mat
+        height, width = template.shape[:2]
+        frame[1500:1500 + height, 4000:4000 + width] = template
+        match = self.task.find_one("Ship-Icon", threshold=self.task.map_threshold,
+                                   box=Box(3950, 1450, 400, 200))
+        self.assertIsNotNone(match)
+        self.assertEqual((4000, 1500), (match.x, match.y))
 
     @unittest.skipUnless(Path("ok_templates/21x9/14.png").is_file(), "Local reference screenshots unavailable")
-    def test_battle_views_with_full_screen_ship_icon_matching(self):
-        for threshold in (0.7, 0.8):
-            self.task.config["Template Threshold"] = threshold
-            for filename, expected in (("14.png", "map"), ("15.png", "battle"), ("16.png", "battle")):
-                with self.subTest(threshold=threshold, screenshot=filename):
-                    frame = make_bottom_right_black(cv2.imread(str(Path("ok_templates/21x9") / filename)))
-                    self.bind_frame(frame)
-                    self.assertEqual(expected, self.task._detect_battle_view())
+    def test_battle_views_with_left_panel_ship_icon_matching(self):
+        for size in ((5120, 2160), (2560, 1080)):
+            for threshold in (0.7, 0.8):
+                self.task.config["Template Threshold"] = threshold
+                for filename, expected in (("14.png", "map"), ("15.png", "battle"), ("16.png", "battle")):
+                    with self.subTest(size=size, threshold=threshold, screenshot=filename):
+                        frame = cv2.resize(cv2.imread(str(Path("ok_templates/21x9") / filename)), size)
+                        self.bind_frame(make_bottom_right_black(frame))
+                        self.assertEqual(expected, self.task._detect_battle_view())
 
     def test_new_buttons_and_sunk_icon_take_priority_over_background(self):
         cases = (("Login-Game", "login"), ("Claim-Reward", "claim_reward"),
