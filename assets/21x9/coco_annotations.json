@@ -2,85 +2,115 @@
     "images": [
         {
             "id": 2,
-            "file_name": "images/0.png",
+            "file_name": "images/packed-fd50e2def3e150abffa28e13478ff2d27312b5e284944c5d9da97682f37422be.png",
             "width": 5120,
             "height": 2160
         },
         {
             "id": 4,
-            "file_name": "images/1.png",
+            "file_name": "images/packed-37bd4daa323217e7be2828e7a3a4bb2fb017088f42332f8972cee770a2432259.png",
             "width": 5120,
             "height": 2160
         },
         {
             "id": 7,
-            "file_name": "images/0.png",
+            "file_name": "images/packed-fd50e2def3e150abffa28e13478ff2d27312b5e284944c5d9da97682f37422be.png",
             "width": 5120,
             "height": 2160
         },
         {
             "id": 8,
-            "file_name": "images/0.png",
+            "file_name": "images/packed-fd50e2def3e150abffa28e13478ff2d27312b5e284944c5d9da97682f37422be.png",
             "width": 5120,
             "height": 2160
         },
         {
             "id": 9,
-            "file_name": "images/0.png",
+            "file_name": "images/packed-fd50e2def3e150abffa28e13478ff2d27312b5e284944c5d9da97682f37422be.png",
             "width": 5120,
             "height": 2160
         },
         {
             "id": 10,
-            "file_name": "images/1.png",
+            "file_name": "images/packed-37bd4daa323217e7be2828e7a3a4bb2fb017088f42332f8972cee770a2432259.png",
             "width": 5120,
             "height": 2160
         },
         {
             "id": 11,
-            "file_name": "images/0.png",
+            "file_name": "images/packed-fd50e2def3e150abffa28e13478ff2d27312b5e284944c5d9da97682f37422be.png",
             "width": 5120,
             "height": 2160
         },
         {
             "id": 12,
-            "file_name": "images/1.png",
+            "file_name": "images/packed-37bd4daa323217e7be2828e7a3a4bb2fb017088f42332f8972cee770a2432259.png",
             "width": 5120,
             "height": 2160
         },
         {
             "id": 13,
-            "file_name": "images/0.png",
+            "file_name": "images/packed-fd50e2def3e150abffa28e13478ff2d27312b5e284944c5d9da97682f37422be.png",
             "width": 5120,
             "height": 2160
         },
         {
             "id": 14,
-            "file_name": "images/0.png",
+            "file_name": "images/packed-fd50e2def3e150abffa28e13478ff2d27312b5e284944c5d9da97682f37422be.png",
             "width": 5120,
             "height": 2160
         },
         {
             "id": 15,
-            "file_name": "images/1.png",
+            "file_name": "images/packed-37bd4daa323217e7be2828e7a3a4bb2fb017088f42332f8972cee770a2432259.png",
             "width": 5120,
             "height": 2160
         },
         {
             "id": 17,
-            "file_name": "images/2.png",
+            "file_name": "images/packed-f82c7327082b87bf56ab391da9bfab70d19d03fb6b251715bc6490f282912b2b.png",
+            "width": 5120,
+            "height": 2160
+        },
+        {
+            "id": 18,
+            "file_name": "images/packed-fd50e2def3e150abffa28e13478ff2d27312b5e284944c5d9da97682f37422be.png",
             "width": 5120,
             "height": 2160
         },
         {
             "id": 20,
-            "file_name": "images/0.png",
+            "file_name": "images/packed-fd50e2def3e150abffa28e13478ff2d27312b5e284944c5d9da97682f37422be.png",
             "width": 5120,
             "height": 2160
         },
         {
             "id": 26,
-            "file_name": "images/0.png",
+            "file_name": "images/packed-fd50e2def3e150abffa28e13478ff2d27312b5e284944c5d9da97682f37422be.png",
+            "width": 5120,
+            "height": 2160
+        },
+        {
+            "id": 27,
+            "file_name": "images/packed-f82c7327082b87bf56ab391da9bfab70d19d03fb6b251715bc6490f282912b2b.png",
+            "width": 5120,
+            "height": 2160
+        },
+        {
+            "id": 28,
+            "file_name": "images/packed-fd50e2def3e150abffa28e13478ff2d27312b5e284944c5d9da97682f37422be.png",
+            "width": 5120,
+            "height": 2160
+        },
+        {
+            "id": 29,
+            "file_name": "images/packed-fd50e2def3e150abffa28e13478ff2d27312b5e284944c5d9da97682f37422be.png",
+            "width": 5120,
+            "height": 2160
+        },
+        {
+            "id": 30,
+            "file_name": "images/packed-fd50e2def3e150abffa28e13478ff2d27312b5e284944c5d9da97682f37422be.png",
             "width": 5120,
             "height": 2160
         }
@@ -299,12 +329,12 @@
             "image_id": 13,
             "category_id": 17,
             "bbox": [
-                2043,
-                622,
-                194,
-                253
+                2074,
+                840,
+                133,
+                35
             ],
-            "area": 49082,
+            "area": 4655,
             "iscrowd": 0
         },
         {
@@ -475,6 +505,84 @@
             ],
             "area": 12656,
             "iscrowd": 0
+        },
+        {
+            "id": 31,
+            "image_id": 29,
+            "category_id": 31,
+            "bbox": [
+                1989,
+                1305,
+                316,
+                85
+            ],
+            "area": 26860,
+            "iscrowd": 0
+        },
+        {
+            "id": 32,
+            "image_id": 30,
+            "category_id": 32,
+            "bbox": [
+                2445,
+                1788,
+                228,
+                56
+            ],
+            "area": 12768,
+            "iscrowd": 0
+        },
+        {
+            "id": 33,
+            "image_id": 28,
+            "category_id": 33,
+            "bbox": [
+                2385,
+                1169,
+                351,
+                85
+            ],
+            "area": 29835,
+            "iscrowd": 0
+        },
+        {
+            "id": 34,
+            "image_id": 27,
+            "category_id": 34,
+            "bbox": [
+                2445,
+                2079,
+                40,
+                39
+            ],
+            "area": 1560,
+            "iscrowd": 0
+        },
+        {
+            "id": 35,
+            "image_id": 13,
+            "category_id": 35,
+            "bbox": [
+                2897,
+                1311,
+                166,
+                35
+            ],
+            "area": 5810,
+            "iscrowd": 0
+        },
+        {
+            "id": 36,
+            "image_id": 18,
+            "category_id": 36,
+            "bbox": [
+                175,
+                353,
+                149,
+                18
+            ],
+            "area": 2682,
+            "iscrowd": 0
         }
     ],
     "categories": [
@@ -626,6 +734,36 @@
         {
             "id": 30,
             "name": "Area-D",
+            "supercategory": ""
+        },
+        {
+            "id": 31,
+            "name": "Claim-Reward",
+            "supercategory": ""
+        },
+        {
+            "id": 32,
+            "name": "Close-Reward-Screen",
+            "supercategory": ""
+        },
+        {
+            "id": 33,
+            "name": "Login-Game",
+            "supercategory": ""
+        },
+        {
+            "id": 34,
+            "name": "Control-Camera",
+            "supercategory": ""
+        },
+        {
+            "id": 35,
+            "name": "Asymmetry-Battle",
+            "supercategory": ""
+        },
+        {
+            "id": 36,
+            "name": "Ship-Icon",
             "supercategory": ""
         }
     ]

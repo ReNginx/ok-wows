@@ -175,6 +175,8 @@ TaskExecutor.check_frame_and_resolution = _check_frame_and_resolution
 
 
 def _install_dev_tool_patches():
+    from functools import wraps
+
     from ok.core.template_store import CocoTemplateStore
     from ok.feature import FeatureSet as feature_set_mod
     from ok.ui.qt.tasks import TemplateTab as template_tab
@@ -248,9 +250,12 @@ def _install_dev_tool_patches():
 
     _original_compress = feature_set_mod.compress_copy_coco
 
+    @wraps(_original_compress)
     def compress_copy_coco(coco_json, target_folder, image_folder, generate_label_enmu=None):
+        from src.asset_export import export_assets
+
         target_folder = redirect_asset_target(target_folder, image_folder)
-        return _original_compress(coco_json, target_folder, image_folder, generate_label_enmu)
+        return export_assets(coco_json, target_folder, image_folder, _original_compress, generate_label_enmu)
 
     feature_set_mod.compress_copy_coco = compress_copy_coco
 

@@ -1,0 +1,57 @@
+{
+  "info": {"description": "UU home and accelerated detail OCR regions from real screenshots. Success uses game identity and stop-acceleration text, independent of latency, node and elapsed time."},
+  "images": [
+    {"id": 1, "file_name": "images/home.png", "width": 1000, "height": 688},
+    {"id": 2, "file_name": "images/accelerated.png", "width": 1750, "height": 1204}
+  ],
+  "categories": [
+    {"id": 1, "name": "UU-Home-Titles", "supercategory": "ocr"},
+    {"id": 2, "name": "UU-Home-Title-1", "supercategory": "ocr"},
+    {"id": 3, "name": "UU-Home-Card-1", "supercategory": "ocr"},
+    {"id": 4, "name": "UU-Home-Title-2", "supercategory": "ocr"},
+    {"id": 5, "name": "UU-Home-Card-2", "supercategory": "ocr"},
+    {"id": 6, "name": "UU-Home-Title-3", "supercategory": "ocr"},
+    {"id": 7, "name": "UU-Home-Card-3", "supercategory": "ocr"},
+    {"id": 8, "name": "UU-Home-Title-4", "supercategory": "ocr"},
+    {"id": 9, "name": "UU-Home-Card-4", "supercategory": "ocr"},
+    {"id": 10, "name": "UU-My-Games", "supercategory": "ocr"},
+    {"id": 11, "name": "UU-Detail-Title", "supercategory": "ocr"},
+    {"id": 12, "name": "UU-Detail-Content", "supercategory": "ocr-fallback"}
+  ],
+  "annotations": [
+    {"id": 1, "image_id": 1, "category_id": 1, "bbox": [30, 418, 940, 50], "area": 47000, "iscrowd": 0},
+    {"id": 2, "image_id": 1, "category_id": 2, "bbox": [40, 418, 218, 50], "area": 10900, "iscrowd": 0},
+    {"id": 3, "image_id": 1, "category_id": 3, "bbox": [40, 94, 218, 320], "area": 69760, "iscrowd": 0},
+    {"id": 4, "image_id": 1, "category_id": 4, "bbox": [274, 418, 218, 50], "area": 10900, "iscrowd": 0},
+    {"id": 5, "image_id": 1, "category_id": 5, "bbox": [274, 94, 218, 320], "area": 69760, "iscrowd": 0},
+    {"id": 6, "image_id": 1, "category_id": 6, "bbox": [508, 418, 218, 50], "area": 10900, "iscrowd": 0},
+    {"id": 7, "image_id": 1, "category_id": 7, "bbox": [508, 94, 218, 320], "area": 69760, "iscrowd": 0},
+    {"id": 8, "image_id": 1, "category_id": 8, "bbox": [742, 418, 218, 50], "area": 10900, "iscrowd": 0},
+    {"id": 9, "image_id": 1, "category_id": 9, "bbox": [742, 94, 218, 320], "area": 69760, "iscrowd": 0},
+    {"id": 10, "image_id": 1, "category_id": 10, "bbox": [742, 502, 218, 62], "area": 13516, "iscrowd": 0},
+    {"id": 11, "image_id": 2, "category_id": 11, "bbox": [120, 480, 310, 70], "area": 21700, "iscrowd": 0},
+    {"id": 12, "image_id": 2, "category_id": 12, "bbox": [0, 340, 1750, 864], "area": 1512000, "iscrowd": 0}
+  ],
+  "uu_ocr": {
+    "version": 1,
+    "reference_image_id": 1,
+    "detail_reference_image_id": 2,
+    "min_confidence": 0.65,
+    "aspect_ratio_tolerance": 0.03,
+    "home_titles": "UU-Home-Titles",
+    "home_cards": [
+      {"title": "UU-Home-Title-1", "content": "UU-Home-Card-1", "click_region": "UU-Home-Card-1"},
+      {"title": "UU-Home-Title-2", "content": "UU-Home-Card-2", "click_region": "UU-Home-Card-2"},
+      {"title": "UU-Home-Title-3", "content": "UU-Home-Card-3", "click_region": "UU-Home-Card-3"},
+      {"title": "UU-Home-Title-4", "content": "UU-Home-Card-4", "click_region": "UU-Home-Card-4"}
+    ],
+    "detail": {"title": "UU-Detail-Title", "content": "UU-Detail-Content"},
+    "navigation_region": "UU-My-Games",
+    "texts": {
+      "accelerate": ["一键加速", "立即加速", "开始加速", "加速", "Boost", "Accelerate"],
+      "ready": ["停止加速", "断开加速", "加速成功", "Stop Boost", "Stop Acceleration"],
+      "blocked": ["加速失败", "登录后加速", "立即登录", "会员已到期"],
+      "navigation": ["我的游戏", "My Games"]
+    }
+  }
+}

@@ -1,11 +1,10 @@
 if __name__ == "__main__":
-    from config import config
-    from ok import OK
+    from src.config import config
+    from src.app_entry import run_app
 
     config = config
     config["gui"] = {
         "type": "web",
         "launch_mode": "pywebview",  # default
     }
-    ok = OK(config)
-    ok.start()
+    run_app(config)

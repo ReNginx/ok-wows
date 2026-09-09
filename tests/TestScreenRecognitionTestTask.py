@@ -21,6 +21,7 @@ class TestScreenRecognitionTestTask(unittest.TestCase):  # 定义屏幕识别测
         self.assertNotIsInstance(self.task, TriggerTask)  # 确认任务不是由后台触发器间歇调度，而是在一次启动中持续运行。
         self.assertIn(SCREEN_RECOGNITION_TASK, REGISTERED_ONETIME_TASKS)  # 确认任务与 DiagnosisTask 一样注册在一次性任务列表。
         self.assertNotIn("Battle Count", self.task.default_config)  # 确认测试任务不会显示无关的战斗场数配置。
+        self.assertNotIn("Close Game After Completion", self.task.default_config)  # 确认测试任务不会显示自动战斗专用的关闭游戏开关。
         self.assertEqual(0.8, self.task.default_config["Template Threshold"])  # 确认测试任务沿用正式模板阈值。
 
     def test_feature_names_come_from_formal_template_json(self):  # 验证任务会动态覆盖正式模板中的全部元素。
@@ -62,7 +63,7 @@ class TestScreenRecognitionTestTask(unittest.TestCase):  # 定义屏幕识别测
         self.assertIn(call("[命中] Area-A: 98.00% (green)"), log_info.call_args_list)  # 确认诊断日志包含字母、分数和颜色。
 
     def test_run_continues_into_a_second_inspection_after_three_seconds(self):  # 验证任务不会在第一轮识别后正常返回。
-        with patch.object(self.task, "_inspect_once") as inspect_once, patch.object(self.task, "sleep", side_effect=[None, RuntimeError("manual stop")]) as sleep:  # 在第二次等待时模拟用户手动停止。
+        with patch.object(self.task, "ensure_in_front", return_value=True), patch.object(self.task, "_inspect_once") as inspect_once, patch.object(self.task, "sleep", side_effect=[None, RuntimeError("manual stop")]) as sleep:  # 隔离焦点操作并在第二次等待时模拟用户手动停止。
             with self.assertRaisesRegex(RuntimeError, "manual stop"):  # 确认循环只因模拟的停止信号结束。
                 self.task.run()  # 启动诊断任务式持续循环。
         self.assertEqual(2, inspect_once.call_count)  # 确认等待三秒后确实进入第二轮屏幕识别。

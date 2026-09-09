@@ -279,6 +279,12 @@ msgstr "Battle Count"
 msgid "Number of completed battles before the task stops."
 msgstr "Number of completed battles before the task stops."
 
+msgid "Close Game After Completion"
+msgstr "Close Game After Completion"
+
+msgid "Close the game after the configured number of battles is completed."
+msgstr "Close the game after the configured number of battles is completed."
+
 msgid "Template Threshold"
 msgstr "Template Threshold"
 
@@ -299,3 +305,101 @@ msgstr "Continuously checks every template every 3 seconds and reports the detec
 
 msgid "Detected Scene"
 msgstr "Detected Scene"
+
+msgid "Automatically prepares the selected ship and completes PVE or Asymmetry battles in the selected mode."
+msgstr "Automatically prepares the selected ship and completes PVE or Asymmetry battles in the selected mode."
+
+msgid "Battle Mode"
+msgstr "Battle Mode"
+
+msgid "Select PVE or Asymmetry battle mode."
+msgstr "Select PVE or Asymmetry battle mode."
+
+msgid "PVE-Battle"
+msgstr "PVE Battle"
+
+msgid "Asymmetry-Battle"
+msgstr "Asymmetry Battle"
+
+#: src/launch_config.py
+msgid "Game and UU Auto Launch"
+msgstr "Game and UU Auto Launch"
+
+#: src/launch_config.py
+msgid "Auto Launch Game and UU"
+msgstr "Auto Launch Game and UU"
+
+#: src/launch_config.py
+msgid "Close Game and UU on Exit"
+msgstr "Close Game and UU on Exit"
+
+#: src/launch_config.py
+msgid "UU Path"
+msgstr "UU Path"
+
+#: src/launch_config.py
+msgid "Game Path"
+msgstr "Game Path"
+
+#: src/launch_config.py
+msgid "UU Game Name"
+msgstr "UU Game Name"
+
+#: src/launch_config.py
+msgid "Launch Timeout"
+msgstr "Launch Timeout"
+
+#: src/launch_config.py
+msgid "战舰世界国际服"
+msgstr "战舰世界国际服"
+
+#: src/launch_config.py
+msgid "Start UU acceleration before launching World of Warships."
+msgstr "Start UU acceleration before launching World of Warships."
+
+#: src/launch_config.py
+msgid "Launch both apps when starting a task; wait for UU acceleration first."
+msgstr ""
+"Launch both apps when starting a task; wait for UU acceleration first."
+
+#: src/launch_config.py
+msgid ""
+"On actual app exit, close World of Warships and UU, including already "
+"running instances."
+msgstr ""
+"On actual app exit, close World of Warships and UU, including already "
+"running instances."
+
+#: src/launch_config.py
+msgid ""
+"Optional uu_launcher.exe path; leave empty to detect the UU installation."
+msgstr ""
+"Optional uu_launcher.exe path; leave empty to detect the UU installation."
+
+#: src/launch_config.py
+msgid ""
+"Optional game executable or shortcut; leave empty to use the saved game path"
+" (Steam installs launch through Steam)."
+msgstr ""
+"Optional game executable or shortcut; leave empty to use the saved game path"
+" (Steam installs launch through Steam)."
+
+#: src/launch_config.py
+msgid ""
+"Exact game name shown in UU. Pin it to the UU home page or My Games first."
+msgstr ""
+"Exact game name shown in UU. Pin it to the UU home page or My Games first."
+
+#: src/launch_config.py
+msgid ""
+"Maximum seconds to wait for UU acceleration and then for the game process."
+msgstr ""
+"Maximum seconds to wait for UU acceleration and then for the game process."
+
+#: src/launch_config.py
+msgid "Executables (*.exe)"
+msgstr "Executables (*.exe)"
+
+#: src/launch_config.py
+msgid "Game executable or shortcut (*.exe *.lnk *.url)"
+msgstr "Game executable or shortcut (*.exe *.lnk *.url)"

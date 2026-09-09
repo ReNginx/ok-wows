@@ -1,7 +1,5 @@
-import ok
+from src.app_entry import run_app
 from src.config import config
 
 if __name__ == '__main__':
-    config = config
-    ok = ok.OK(config)
-    ok.start()
+    run_app(config)

@@ -2,6 +2,7 @@ import os
 
 import numpy as np
 from ok import ConfigOption
+from src.launch_config import launch_options
 
 import src.resolution_assets  # 按游戏窗口比例切换 21:9、16:10、16:9 三套模板。
 
@@ -67,7 +68,7 @@ config = {
     'debug': False,  # Optional, default: False
     'gui': gui_config,
     'config_folder': 'configs', #最好不要修改
-    'global_configs': [key_config_option],
+    'global_configs': [key_config_option, launch_options],
     'screenshot_processor': make_bottom_right_black, # 在截图的时候对frame进行修改, 可选
     'gui_icon': 'icons/icon.png', #窗口图标, 最好不需要修改文件名
     'wait_until_before_delay': 0,

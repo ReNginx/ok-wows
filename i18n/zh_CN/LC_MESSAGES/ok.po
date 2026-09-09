@@ -279,6 +279,12 @@ msgstr "战斗场数"
 msgid "Number of completed battles before the task stops."
 msgstr "任务停止前需要完成的战斗场数。"
 
+msgid "Close Game After Completion"
+msgstr "完成后关闭游戏"
+
+msgid "Close the game after the configured number of battles is completed."
+msgstr "完成设定的战斗场数后关闭游戏。"
+
 msgid "Template Threshold"
 msgstr "模板匹配阈值"
 
@@ -299,3 +305,93 @@ msgstr "每 3 秒持续检查全部模板并报告当前界面，不发送任何
 
 msgid "Detected Scene"
 msgstr "识别到的界面"
+
+msgid "Automatically prepares the selected ship and completes PVE or Asymmetry battles in the selected mode."
+msgstr "自动准备选中的舰船，并按所选模式完成 PVE 或非对称战斗。"
+
+msgid "Battle Mode"
+msgstr "战斗模式"
+
+msgid "Select PVE or Asymmetry battle mode."
+msgstr "选择 PVE 或非对称战斗模式。"
+
+msgid "PVE-Battle"
+msgstr "PVE 战斗"
+
+msgid "Asymmetry-Battle"
+msgstr "非对称战斗"
+
+#: src/launch_config.py
+msgid "Game and UU Auto Launch"
+msgstr "游戏与 UU 自动启动"
+
+#: src/launch_config.py
+msgid "Auto Launch Game and UU"
+msgstr "自动启动游戏和 UU"
+
+#: src/launch_config.py
+msgid "Close Game and UU on Exit"
+msgstr "退出时关闭游戏和 UU"
+
+#: src/launch_config.py
+msgid "UU Path"
+msgstr "UU 路径"
+
+#: src/launch_config.py
+msgid "Game Path"
+msgstr "游戏路径"
+
+#: src/launch_config.py
+msgid "UU Game Name"
+msgstr "UU 游戏名称"
+
+#: src/launch_config.py
+msgid "Launch Timeout"
+msgstr "启动超时"
+
+#: src/launch_config.py
+msgid "战舰世界国际服"
+msgstr "战舰世界国际服"
+
+#: src/launch_config.py
+msgid "Start UU acceleration before launching World of Warships."
+msgstr "先开启 UU 加速，再启动战舰世界。"
+
+#: src/launch_config.py
+msgid "Launch both apps when starting a task; wait for UU acceleration first."
+msgstr "启动任务时联动启动游戏和 UU，先等待 UU 加速成功。"
+
+#: src/launch_config.py
+msgid ""
+"On actual app exit, close World of Warships and UU, including already "
+"running instances."
+msgstr "本应用真正退出时关闭战舰世界和 UU，包含启动前已运行的实例。"
+
+#: src/launch_config.py
+msgid ""
+"Optional uu_launcher.exe path; leave empty to detect the UU installation."
+msgstr "可选择 uu_launcher.exe，留空自动检测 UU 安装位置。"
+
+#: src/launch_config.py
+msgid ""
+"Optional game executable or shortcut; leave empty to use the saved game path"
+" (Steam installs launch through Steam)."
+msgstr "可选择游戏程序或快捷方式，留空使用已记录的路径；Steam 安装通过 Steam 启动。"
+
+#: src/launch_config.py
+msgid ""
+"Exact game name shown in UU. Pin it to the UU home page or My Games first."
+msgstr "填写 UU 中显示的完整游戏名称，请先将游戏添加到 UU 首页或我的游戏。"
+
+#: src/launch_config.py
+msgid ""
+"Maximum seconds to wait for UU acceleration and then for the game process."
+msgstr "等待 UU 加速和游戏进程启动的最长秒数，分别计时。"
+
+#: src/launch_config.py
+msgid "Executables (*.exe)"
+msgstr "可执行程序 (*.exe)"
+
+#: src/launch_config.py
+msgid "Game executable or shortcut (*.exe *.lnk *.url)"
+msgstr "游戏程序或快捷方式 (*.exe *.lnk *.url)"

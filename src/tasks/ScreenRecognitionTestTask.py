@@ -11,12 +11,21 @@ class ScreenRecognitionTestTask(AutoPveBattleTask):  # 像诊断任务一样定�
     def __init__(self, *args, **kwargs):  # 初始化测试任务的界面元数据和模板阈值配置。
         super().__init__(*args, **kwargs)  # 首先初始化基础任务能力和共享场景判断方法。
         self.name = "Screen Recognition Test"  # 设置任务列表中显示的英文名称。
+        self.support_schedule_task = False  # 持续识别测试不继承战斗任务的定时执行入口。
         self.description = "Continuously checks every template every 3 seconds and reports the detected screen without sending any input."  # 说明任务持续识别当前屏幕且不操作游戏。
         self.icon = FluentIcon.SEARCH  # 使用搜索图标表示该任务只执行检查。
         self.default_config.pop("Battle Count", None)  # 移除继承得到但测试任务不需要的战斗场数配置。
         self.config_description.pop("Battle Count", None)  # 移除测试任务不使用的战斗场数说明。
+        self.default_config.pop("Battle Mode", None)  # 只读测试无需选择实际进入的战斗模式。
+        self.config_description.pop("Battle Mode", None)  # 移除模式选择的帮助说明。
+        self.config_type.pop("Battle Mode", None)  # 移除继承的模式下拉框元数据。
+        self.default_config.pop("Close Game After Completion", None)  # 移除只属于自动战斗成功流程的关闭游戏开关。
+        self.config_description.pop("Close Game After Completion", None)  # 移除测试任务不使用的关闭游戏说明。
 
     def run(self):  # 参照 DiagnosisTask 在一次启动中持续运行，直到用户手动停止任务。
+        if not self.ensure_in_front():  # 识别测试也先把游戏切换到前台，方便用户观察当前画面。
+            self.log_error("无法将游戏窗口切换到前台，识别测试停止。")  # 启动失败时明确报告原因。
+            return  # 不在未聚焦的窗口上开始识别循环。
         while True:  # 保持任务占用当前执行流程，避免一次检查结束后被一次性任务执行器禁用。
             self._inspect_once()  # 截取当前帧并完成一轮全部元素和界面判断。
             self.sleep(3)  # 使用任务睡眠等待三秒，并允许框架在用户停止任务时中断循环。
@@ -56,6 +65,7 @@ class ScreenRecognitionTestTask(AutoPveBattleTask):  # 像诊断任务一样定�
         if matched_boxes:  # 仅在本轮存在达到阈值的结果时重新启用覆盖层绘框。
             self.draw_boxes("screen_recognition_matches", matched_boxes, color="red")  # 只绘制达到正式阈值的命中框。
         scene_labels = {"main": "主界面", "battle_mode": "战斗模式选择", "addon": "加成页面", "equipment": "装备页面", "queue": "战斗排队", "battle_start": "等待战斗开始", "battle": "战斗界面", "map": "大地图", "result": "战斗结算", "menu": "菜单", "leave_battle": "离开战斗", "unknown": "未知界面"}  # 定义内部场景名称对应的中文显示文本。
+        scene_labels.update({"login": "登录界面", "claim_reward": "领取奖励", "reward_screen": "奖励展示"})  # 补充新增按钮对应的只读场景名称。
         scene_label = scene_labels.get(scene, scene)  # 获取可直接展示给用户的场景名称。
         self.info_set("Detected Scene", f"{scene_label} ({scene})")  # 在任务信息区域持续显示本次判断结果。
         self.log_info(f"元素检查完成：{matched_count}/{len(feature_names)} 个达到阈值；当前界面：{scene_label} ({scene})。", notify=True)  # 汇总命中数量并通知最终场景。
