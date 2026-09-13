@@ -38,6 +38,7 @@ class TestBattleEntryFlow(unittest.TestCase):
                 self.task.config["Battle Mode"] = mode
                 with patch.object(self.task, "wait_click_feature", return_value=True) as click, \
                         patch.object(self.task, "get_feature_by_name", return_value=object()), \
+                        patch.object(self.task, "_recall_commander_if_needed", return_value=True), \
                         patch.object(self.task, "_return_to_main", return_value=True), \
                         patch.object(self.task, "_remove_optional_item", return_value=True):
                     self.assertTrue(self.task._prepare_and_join_first_battle())
@@ -48,6 +49,7 @@ class TestBattleEntryFlow(unittest.TestCase):
         self.task.config["Battle Mode"] = "Asymmetry-Battle"
         with patch.object(self.task, "wait_click_feature", return_value=True) as click, \
                 patch.object(self.task, "get_feature_by_name", return_value=None), \
+                patch.object(self.task, "_recall_commander_if_needed", return_value=True), \
                 patch.object(self.task, "log_error"):
             self.assertFalse(self.task._prepare_and_join_first_battle())
         self.assertEqual(["Pick-First-Ship", "Select-Battle-Mode"], [c.args[0] for c in click.call_args_list])

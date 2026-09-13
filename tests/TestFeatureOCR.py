@@ -95,7 +95,7 @@ class TestFeatureOCR(unittest.TestCase):
         tested = set()
         for annotation in data["annotations"]:
             name = names[annotation["category_id"]]
-            if name not in OCR_TEXTS or name in SHIP_NAME_FEATURES:  # 舰名迁移另用原始尺寸测试，不加入缩放用例。
+            if name not in OCR_TEXTS or name in SHIP_NAME_FEATURES or name in ("No-Commander", "Recall-Commander"):  # 舰名及指挥官文字另用原始尺寸测试，不加入旧迁移的缩放用例。
                 continue
             frame = make_bottom_right_black(cv2.imread(str(root / images[annotation["image_id"]]["file_name"])))
             for scale in (1, .5):

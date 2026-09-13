@@ -18,6 +18,8 @@ SHIP_NAME_FEATURES = frozenset(("Pick-First-Ship", "Libertad-Nameplate"))  # 港
 OCR_TEXTS = {  # 两项舰名动态读取配置，其余元素保留固定的中英文候选。
     "Pick-First-Ship": (),
     "Libertad-Nameplate": (),
+    "No-Commander": ("没有指挥官", "No commander"),
+    "Recall-Commander": ("召回指挥官", "Recall commander"),
     "Leave-Queue": ("离开队列", "Leave queue"),
     "Start-Battle": ("开始战斗", "Start battle"),
     "Back-To-Port": ("回到港口", "Back to port", "Return to port"),

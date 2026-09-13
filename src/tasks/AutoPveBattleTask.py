@@ -32,7 +32,7 @@ class AutoPveBattleTask(MyBaseTask):  # 定义自动完成 PVE 战斗的一次�
     DATASET_DIRECTORY = Path(__file__).resolve().parents[2] / "dataset"  # 将数据集固定保存在项目根目录，避免随工作目录变化。
     BATTLE_MODES = ("PVE-Battle", "Asymmetry-Battle")  # 下拉选项直接对应正式标注名称。
     SCREEN_BUTTONS = {"login": "Login-Game", "claim_reward": "Claim-Reward", "reward_screen": "Close-Reward-Screen"}  # 按登录、领取、关闭的顺序处理入口和奖励页面。
-    OPTIONAL_FEATURES = (*SCREEN_BUTTONS.values(), "Control-Camera", "Asymmetry-Battle", "Container-Menu", "Pick-Container", "Confirm-Container")  # 部分比例尚未提供这些新模板，场景识别允许跳过。
+    OPTIONAL_FEATURES = (*SCREEN_BUTTONS.values(), "Control-Camera", "Asymmetry-Battle", "Container-Menu", "Pick-Container", "Confirm-Container", "No-Commander", "Recall-Commander")  # 部分比例尚未提供这些新标注，识别允许跳过。
 
     def __init__(self, *args, **kwargs):  # 初始化任务元数据和可配置参数。
         super().__init__(*args, **kwargs)  # 首先初始化 ok-script 的基础任务能力。
@@ -82,7 +82,7 @@ class AutoPveBattleTask(MyBaseTask):  # 定义自动完成 PVE 战斗的一次�
         if isinstance(feature_name, (list, tuple)):  # 框架 wait_feature 会把多个页面状态作为列表传入。
             matches = [self.find_one(name, horizontal_variance, vertical_variance, threshold, **kwargs) for name in feature_name]  # 每个元素分别路由至 OCR 或保留的模板识别。
             return max((match for match in matches if match is not None), key=lambda match: match.confidence, default=None)  # 保持框架原有最高分选择行为。
-        if feature_name in OCR_TEXTS:  # 已迁移的二十九项只使用 OCR，不回退到像素模板匹配。
+        if feature_name in OCR_TEXTS:  # 已迁移的文字元素只使用 OCR，不回退到像素模板匹配。
             frame = kwargs.get("frame") if kwargs.get("frame") is not None else self.frame  # 整次查询和弹窗上下文均使用同一截图。
             return find_ocr_feature(self, feature_name, frame, threshold, kwargs.get("box"))  # 返回带原元素名的文字框供等待、点击及诊断共用。
         if feature_name in self.OPTIONAL_FEATURES and self.get_feature_by_name(feature_name) is None:  # 缺少某个比例的新标注时跳过查询，避免框架抛出模板缺失异常。
@@ -183,6 +183,8 @@ class AutoPveBattleTask(MyBaseTask):  # 定义自动完成 PVE 战斗的一次�
     def _prepare_and_join_first_battle(self):  # 在主界面完成首场战斗的全部准备动作。
         if not self.wait_click_feature("Pick-First-Ship", threshold=self.threshold, time_out=15, raise_if_not_found=False, after_sleep=1):  # 在屏幕底部 30% 范围内点击配置的舰名文字。
             return False  # 找不到舰船入口时报告准备失败。
+        if not self._recall_commander_if_needed():  # 选船后先处理缺少指挥官，再进入战斗模式与装备准备。
+            return False
         if not self.wait_click_feature("Select-Battle-Mode", threshold=self.threshold, time_out=15, raise_if_not_found=False, after_sleep=1):  # 打开战斗模式选择页面。
             return False  # 找不到战斗模式入口时报告准备失败。
         battle_mode = self.config.get("Battle Mode", "PVE-Battle")  # 读取用户选择的模式，旧配置仍默认使用 PVE。
@@ -210,6 +212,18 @@ class AutoPveBattleTask(MyBaseTask):  # 定义自动完成 PVE 战斗的一次�
         if not self._return_to_main():  # 从装备页面返回主界面。
             return False  # 无法回到主界面时报告准备失败。
         return self.wait_click_feature("Join-Battle", threshold=self.threshold, time_out=15, raise_if_not_found=False, after_sleep=2)  # 点击加入战斗并返回操作结果。
+
+    def _recall_commander_if_needed(self):  # 只检查右上方当前舰船的指挥官栏，不搜索下方其他舰船卡片。
+        missing = self.find_one("No-Commander", threshold=self.threshold)
+        if missing is None:
+            return True  # 没有识别到缺少指挥官时，沿用原来的准备流程。
+        self.log_info("当前舰船没有指挥官，悬停并召回指挥官。")
+        self.move(*missing.center())  # 将鼠标移到 OCR 命中的文字中心，触发指挥官操作按钮。
+        self.sleep(.5)  # 等待悬停动画，并刷新下一轮识别画面。
+        if not self.wait_click_feature("Recall-Commander", threshold=self.threshold, time_out=5, raise_if_not_found=False, after_sleep=1):  # 仅点击召回文字，不点击相邻的指派指挥官。
+            self.log_error("当前舰船没有指挥官，悬停后未找到召回指挥官按钮，任务停止。")
+            return False  # 交给统一错误退出流程保存现场。
+        return True
 
     def _remove_optional_item(self, remove_feature, page_features):  # 在加成或旗子页面按当前状态决定是否卸载。
         page_feature = self.wait_feature(list(page_features), threshold=self.threshold, time_out=15, raise_if_not_found=False)  # 等待任一页面状态元素出现。
