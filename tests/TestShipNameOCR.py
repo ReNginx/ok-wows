@@ -104,6 +104,30 @@ class TestShipNameOCR(unittest.TestCase):
                 np.testing.assert_array_equal(frame[region.y:region.y + region.height, region.x:region.x + region.width], crop)
             self.assertTrue(all(call.kwargs["target_height"] == 0 for call in ocr.call_args_list))
 
+    def test_battle_nameplate_accepts_logged_tier_icon_noise_but_port_does_not(self):
+        self.task.config["Ship Name"] = "瓦尔帕莱索"
+        port = search_box("Join-Battle", self.executor.frame)
+        nameplate = search_box("Libertad-Nameplate", self.executor.frame)
+        for confidence in (.87, .88, .89, .91):  # 直接复现最近两场等待结束时的 OCR 文本及置信度。
+            def recognize(*, box, **kwargs):
+                if box.y == port.y:
+                    return []
+                return [Box(nameplate.x + 20, nameplate.y + 30, 220, 30, confidence, "VIX瓦尔帕莱索")]
+            with self.subTest(confidence=confidence), patch.object(self.task, "ocr", side_effect=recognize), \
+                    patch.object(self.task, "get_feature_by_name", return_value=object()), \
+                    patch.object(MyBaseTask, "find_one", return_value=None):
+                self.assertEqual("battle", self.task._detect_battle_view())
+        with patch.object(self.task, "ocr", side_effect=self.fake_ocr("VIX瓦尔帕莱索", True)):
+            self.assertIsNone(self.task.find_one("Pick-First-Ship"))
+
+    def test_tier_icon_tolerance_still_requires_exact_name_and_valid_tier(self):
+        for text in ("VIX瓦尔帕莱索", "Ｖ IX 瓦尔帕莱索", "IX瓦尔帕莱索", "瓦尔帕莱索"):
+            self.assertTrue(matches_ship_name(text, "瓦尔帕莱索", allow_tier_icon=True), text)
+        for text in ("VIX瓦尔帕莱", "VIX瓦尔帕莱索B", "VIX新瓦尔帕莱索", "V瓦尔帕莱索B",
+                     "ABCIX瓦尔帕莱索", "VIIIX瓦尔帕莱索", "VIX大和"):
+            self.assertFalse(matches_ship_name(text, "瓦尔帕莱索", allow_tier_icon=True), text)
+        self.assertFalse(matches_ship_name("VIX瓦尔帕莱索", "瓦尔帕莱索"))
+
     @unittest.skipUnless(Path("ok_templates/21x9/28.png").is_file(), "Native ship screenshots unavailable")
     def test_native_screens_port_and_battle_are_not_confused(self):
         bind_ocr(self.executor)

@@ -313,29 +313,82 @@ class TestAutoPveBattleTask(unittest.TestCase):  # 定义不共享全局应用�
         forward_calls = [call for call in send_key.call_args_list if call.args == ("w",)]  # 筛选所有发送 W 键的调用。
         self.assertEqual(10, len(forward_calls))  # 确认前进键严格发送十次。
         send_key.assert_any_call("m", after_sleep=2)  # 确认十次前进后仍会发送 M 键打开地图。
-        self.assertEqual([call.sleep(25), call.detect()] + [call.key("w", after_sleep=0.05)] * 10 + [call.key("m", after_sleep=2), call.navigate()], events.mock_calls)  # 必须先等二十五秒并确认画面，再前进、开图和导航。
+        self.assertEqual([call.detect()] + [call.key("w", after_sleep=0.05)] * 10 + [call.key("m", after_sleep=2), call.navigate()], events.mock_calls)  # 每次导航重试都先确认画面；本场等待由外层循环统一处理。
 
     def test_navigation_wait_does_not_send_input_after_scene_changes(self):
         for scene in ("unknown", "leave_battle", "result", "menu", "map"):
             with self.subTest(scene=scene), patch.object(self.task, "sleep") as sleep, patch.object(self.task, "_detect_scene", return_value=scene), patch.object(self.task, "log_info"), patch.object(self.task, "send_key") as keys, patch.object(self.task, "_handle_map") as navigate:
                 self.assertFalse(self.task._initialize_battle_navigation())
-            sleep.assert_called_once_with(25)
+            sleep.assert_not_called()
             keys.assert_not_called()
             navigate.assert_not_called()
 
     def test_initial_map_returns_to_battle_before_delayed_navigation(self):
         events = MagicMock()
-        with patch.object(self.task, "_detect_scene", side_effect=("map", "battle", "battle", "result")), patch.object(self.task, "_close_map", return_value=True) as close, patch.object(self.task, "sleep") as sleep, patch.object(self.task, "log_info"), patch.object(self.task, "send_key") as keys, patch.object(self.task, "_handle_map", return_value=True) as navigate:
+        with patch("src.tasks.AutoPveBattleTask.time.monotonic", return_value=0), patch.object(self.task, "_detect_scene", side_effect=("map", "battle", "battle", "result")), patch.object(self.task, "_close_map", return_value=True) as close, patch.object(self.task, "sleep") as sleep, patch.object(self.task, "log_info"), patch.object(self.task, "send_key") as keys, patch.object(self.task, "_handle_map", return_value=True) as navigate:
             for name, mock in (("close", close), ("sleep", sleep), ("key", keys), ("navigate", navigate)):
                 events.attach_mock(mock, name)
             self.assertTrue(self.task._run_until_result())
         self.assertEqual([call.close(), call.sleep(25)] + [call.key("w", after_sleep=0.05)] * 10 + [call.key("m", after_sleep=2), call.navigate()], events.mock_calls)
 
     def test_rejoined_battle_waits_twenty_five_seconds_again(self):
-        with patch.object(self.task, "_detect_scene", side_effect=("battle", "battle", "leave_battle", "battle", "battle", "result")), patch.object(self.task, "_handle_leave_battle", return_value="left"), patch.object(self.task, "sleep") as sleep, patch.object(self.task, "log_info"), patch.object(self.task, "send_key"), patch.object(self.task, "_handle_map", return_value=True) as navigate:
+        with patch("src.tasks.AutoPveBattleTask.time.monotonic", return_value=0), patch.object(self.task, "_detect_scene", side_effect=("battle", "battle", "leave_battle", "battle", "battle", "result")), patch.object(self.task, "_handle_leave_battle", return_value="left"), patch.object(self.task, "sleep") as sleep, patch.object(self.task, "log_info"), patch.object(self.task, "send_key"), patch.object(self.task, "_handle_map", return_value=True) as navigate:
             self.assertTrue(self.task._run_until_result())
         self.assertEqual([call(25), call(25)], sleep.call_args_list)
         self.assertEqual(2, navigate.call_count)
+
+    def test_repeated_scene_misses_do_not_restart_entry_delay(self):  # 复现日志中等待结束后三次铭牌漏识别。
+        elapsed = [100.0]
+        scenes = iter(("battle", "unknown", "unknown", "battle", "unknown", "battle", "unknown", "battle", "battle", "result"))
+        def sleep(seconds):
+            elapsed[0] += seconds
+        def detect():
+            elapsed[0] += .2  # 将识别耗时计入本场已经经过的时间。
+            return next(scenes)
+        with patch("src.tasks.AutoPveBattleTask.time.monotonic", side_effect=lambda: elapsed[0]), \
+                patch.object(self.task, "_detect_scene", side_effect=detect), \
+                patch.object(self.task, "sleep", side_effect=sleep) as waits, \
+                patch.object(self.task, "send_key") as keys, \
+                patch.object(self.task, "_handle_map", return_value=True) as navigate, \
+                patch.object(self.task, "log_info") as logs:
+            self.assertTrue(self.task._run_until_result())
+        self.assertEqual([call(25), call(1)], waits.call_args_list)
+        self.assertLess(elapsed[0] - 100, 30)  # 多次漏识别也不会变成四轮共一百秒的等待。
+        self.assertEqual(1, sum("本场等待" in c.args[0] for c in logs.call_args_list))
+        self.assertEqual([call("w", after_sleep=.05)] * 10 + [call("m", after_sleep=2)], keys.call_args_list)
+        navigate.assert_called_once()
+
+    def test_failed_map_retry_keeps_expired_entry_deadline(self):
+        elapsed = [0.0]
+        with patch("src.tasks.AutoPveBattleTask.time.monotonic", side_effect=lambda: elapsed[0]), \
+                patch.object(self.task, "_detect_scene", side_effect=("battle", "battle", "battle", "battle", "result")), \
+                patch.object(self.task, "sleep", side_effect=lambda seconds: elapsed.__setitem__(0, elapsed[0] + seconds)) as sleep, \
+                patch.object(self.task, "send_key"), \
+                patch.object(self.task, "_handle_map", side_effect=(False, True)) as navigate:
+            self.assertTrue(self.task._run_until_result())
+        sleep.assert_called_once_with(25)
+        self.assertEqual(2, navigate.call_count)
+
+    def test_each_new_run_until_result_gets_its_own_entry_delay(self):  # 结算续战和任务重启都不继承上一场截止时间。
+        elapsed = [0.0]
+        with patch("src.tasks.AutoPveBattleTask.time.monotonic", side_effect=lambda: elapsed[0]), \
+                patch.object(self.task, "_detect_scene", side_effect=("battle", "battle", "result") * 2), \
+                patch.object(self.task, "sleep", side_effect=lambda seconds: elapsed.__setitem__(0, elapsed[0] + seconds)) as sleep, \
+                patch.object(self.task, "send_key"), patch.object(self.task, "_handle_map", return_value=True):
+            self.assertTrue(self.task._run_until_result())
+            self.assertTrue(self.task._run_until_result())
+        self.assertEqual([call(25), call(25)], sleep.call_args_list)
+
+    def test_entry_wait_still_blocks_input_if_battle_ends_during_delay(self):
+        for scene in ("unknown", "leave_battle", "result", "menu", "map"):
+            with self.subTest(scene=scene), patch("src.tasks.AutoPveBattleTask.time.monotonic", return_value=0), \
+                    patch.object(self.task, "_detect_scene", side_effect=("battle", scene, "result")), \
+                    patch.object(self.task, "sleep") as sleep, patch.object(self.task, "send_key") as keys, \
+                    patch.object(self.task, "_handle_map") as navigate:
+                self.assertTrue(self.task._run_until_result())
+            sleep.assert_called_once_with(25)
+            keys.assert_not_called()
+            navigate.assert_not_called()
 
     def test_battle_actions_rotate_left_click_r_t_and_f(self):  # 验证战斗输入严格按鼠标左键、R、T、F 循环发送。
         action_index = 0  # 从循环中的鼠标左键位置开始。
@@ -352,7 +405,7 @@ class TestAutoPveBattleTask(unittest.TestCase):  # 定义不共享全局应用�
         with patch.object(self.task, "_detect_scene", side_effect=lambda: next(scenes)), patch.object(self.task, "_initialize_battle_navigation"), patch.object(self.task, "_send_battle_action", side_effect=(1, 2, 3, 0)) as send_action, patch("src.tasks.AutoPveBattleTask.time.monotonic", return_value=0), patch.object(self.task, "sleep") as sleep:  # 隔离导航、输入和真实等待。
             self.assertTrue(self.task._run_until_result())  # 运行状态机直到模拟的结算页。
         self.assertEqual([call(0), call(1), call(2), call(3)], send_action.call_args_list)  # 确认状态机依次推进左键、R、T、F 四个输入位置。
-        self.assertEqual([call(1), call(1), call(1), call(1)], sleep.call_args_list)  # 确认每个输入周期后都固定等待一秒。
+        self.assertEqual([call(25), call(1), call(1), call(1), call(1)], sleep.call_args_list)  # 确认每个输入周期后都固定等待一秒。
 
     def test_battle_cycle_includes_recognition_time_and_never_catches_up(self):
         for recognition_seconds, expected_sleep in ((0.8, 0.2), (1.4, 0)):
@@ -367,7 +420,7 @@ class TestAutoPveBattleTask(unittest.TestCase):  # 定义不共享全局应用�
                 with patch("src.tasks.AutoPveBattleTask.time.monotonic", side_effect=lambda: clock[0]), patch.object(self.task, "_detect_scene", side_effect=detect), patch.object(self.task, "_initialize_battle_navigation", return_value=True), patch.object(self.task, "_send_battle_action", return_value=1) as action, patch.object(self.task, "sleep") as sleep:
                     self.assertTrue(self.task._run_until_result())
                 action.assert_called_once_with(0)
-                self.assertEqual(1, sleep.call_count)
+                self.assertEqual(2, sleep.call_count)
                 self.assertAlmostEqual(expected_sleep, sleep.call_args.args[0])
 
     def test_random_mouse_movement_only_runs_on_confirmed_battle_frame(self):
@@ -407,7 +460,7 @@ class TestAutoPveBattleTask(unittest.TestCase):  # 定义不共享全局应用�
 
     def test_rejoined_battle_runs_navigation_initialization_again(self):  # 验证确认离开后重新加入会初始化新一场战斗。
         scenes = iter(("battle", "leave_battle", "battle", "result"))  # 模拟当前战斗、击沉离开、新战斗和最终结算的状态序列。
-        with patch.object(self.task, "_detect_scene", side_effect=lambda: next(scenes)), patch.object(self.task, "_handle_leave_battle", return_value="left") as leave, patch.object(self.task, "_initialize_battle_navigation") as initialize:  # 隔离实际按钮点击和键盘地图操作。
+        with patch.object(self.task, "sleep"), patch.object(self.task, "_detect_scene", side_effect=lambda: next(scenes)), patch.object(self.task, "_handle_leave_battle", return_value="left") as leave, patch.object(self.task, "_initialize_battle_navigation") as initialize:  # 隔离实际按钮点击和键盘地图操作。
             self.assertTrue(self.task._run_until_result(True))  # 执行包含击沉重开的完整状态机片段。
         leave.assert_called_once_with(True)  # 确认击沉页面只执行一次 ESC 后续处理。
         self.assertEqual(2, initialize.call_count)  # 确认新一场战斗不会沿用上一场的航行初始化状态。

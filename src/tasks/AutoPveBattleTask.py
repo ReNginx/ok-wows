@@ -319,6 +319,7 @@ class AutoPveBattleTask(MyBaseTask):  # 定义自动完成 PVE 战斗的一次�
 
     def _run_until_result(self, can_continue=True):  # 从排队开始持续处理状态直到本场战斗结束。
         battle_initialized = False  # 标记当前战斗是否已经完成前进和地图导航初始化。
+        navigation_ready_at = None  # 本场首次确认战斗后记录截止时间，识别失败或导航重试不重新计时。
         battle_action_index = 0  # 从鼠标左键开始记录本场战斗下一项循环输入的位置。
         unknown_since = None  # 记录连续无法识别界面的起始时间。
         dataset_directory = None  # 每场战斗使用独立目录，排队和加载阶段不创建采集会话。
@@ -354,6 +355,7 @@ class AutoPveBattleTask(MyBaseTask):  # 定义自动完成 PVE 战斗的一次�
                     if not can_continue:  # 场次已满时离开后直接结束本场循环。
                         return "left"  # 告诉外层已经返回港口，无需再点结算按钮。
                     battle_initialized = False  # 新一场战斗需要重新执行前进和地图航点初始化。
+                    navigation_ready_at = None  # 确认离开并重新入场时才重置开局等待。
                     battle_action_index = 0  # 新一场战斗重新从鼠标左键开始轮换输入。
                     dataset_directory = None  # 重新加入战斗时创建新的数据集目录并重新计时。
                     next_dataset_capture = None  # 不把上一场到期的采集带入下一场。
@@ -369,7 +371,13 @@ class AutoPveBattleTask(MyBaseTask):  # 定义自动完成 PVE 战斗的一次�
                 self.wait_click_feature("Start-Battle", threshold=self.threshold, time_out=10, raise_if_not_found=False, after_sleep=2)  # 点击后仍需由舰船铭牌确认进入战斗。
                 continue  # 点击后重新截图识别游戏状态。
             if scene == "battle" and not battle_initialized:  # 首次确认舰船铭牌和独立舰船图标后执行航行初始化。
-                battle_initialized = self._initialize_battle_navigation()  # 等待二十五秒并重新确认战斗，只有导航成功才标记完成。
+                if navigation_ready_at is None:
+                    navigation_ready_at = time.monotonic() + self.NAVIGATION_START_DELAY
+                    self.log_info(f"已进入战斗界面，本场等待 {self.NAVIGATION_START_DELAY} 秒让开局提示消失后开始导航。")
+                remaining = navigation_ready_at - time.monotonic()  # 只等待本场尚未经过的时间。
+                if remaining > 0:
+                    self.sleep(remaining)  # 保留框架的暂停和用户停止能力。
+                battle_initialized = self._initialize_battle_navigation()  # 每次重试仍重新确认画面，只有导航成功才标记完成。
                 continue  # 回到战斗界面后重新识别状态。
             if scene == "map":  # 处理可能已经打开但尚未完成选择的地图页面。
                 self._close_map()  # 首次导航前先回到战斗画面等待；已完成导航时只关闭地图，不重新选点。
@@ -456,10 +464,8 @@ class AutoPveBattleTask(MyBaseTask):  # 定义自动完成 PVE 战斗的一次�
         return continue_button, confirm_button  # 把找到的按钮交给击沉处理逻辑选择点击目标。
 
     def _initialize_battle_navigation(self):  # 在战斗开始时完成前进输入并打开地图。
-        self.log_info(f"已进入战斗界面，等待 {self.NAVIGATION_START_DELAY} 秒让开局提示消失后开始导航。")  # 明确解释入场后的等待原因。
-        self.sleep(self.NAVIGATION_START_DELAY)  # 使用框架等待，用户停止任务时可以中断。
         if self._detect_scene() != "battle":  # 等待期间可能出现击沉、结算或弹窗，必须刷新截图重新确认。
-            self.log_info("等待结束后已不在战斗界面，暂缓导航并重新识别。")  # 保留本场未初始化状态以便后续恢复。
+            self.log_info("本场开局等待已结束，当前未能确认战斗界面；重新识别后继续导航，不重复等待。")
             return False  # 交回场景循环处理，避免向其他页面发送前进和地图按键。
         for _ in range(10):  # 按工作流向游戏发送十次前进键。
             self.send_key("w", after_sleep=0.05)  # 短按一次 W 键并留出极短输入间隔。
