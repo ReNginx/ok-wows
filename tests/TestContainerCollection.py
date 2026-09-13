@@ -8,6 +8,7 @@ from ok import FeatureSet  # 使用正式模板匹配引擎。
 
 from src.config import config, make_bottom_right_black  # 复用实际模板参数和截图预处理。
 from src.tasks.AutoPveBattleTask import AutoPveBattleTask  # 测试自动战斗任务的领取收尾。
+from tests.ocr_support import bind_ocr  # 将实图验证连接到应用使用的 OCR。
 
 
 class TestContainerCollection(unittest.TestCase):  # 覆盖领取耗尽、异常和完成顺序。
@@ -65,6 +66,7 @@ class TestContainerCollection(unittest.TestCase):  # 覆盖领取耗尽、异常
                 self.executor.device_manager.stop_hwnd.assert_not_called()  # 不关闭游戏。
 
     def test_container_templates_match_reference_screens(self):  # 用原始截图验证同步后的正式模板能够正确命中。
+        bind_ocr(self.executor)  # 三个按钮均已迁移到文字识别。
         reference = Path("ok_templates/21x9/coco_annotations.json")  # 原始参考截图不进入版本库。
         if not reference.exists():  # 无本地截图的环境仍可运行流程单元测试。
             self.skipTest("Container reference screenshots are unavailable.")  # 明确跳过真实截图验证。

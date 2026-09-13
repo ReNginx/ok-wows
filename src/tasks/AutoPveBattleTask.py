@@ -11,6 +11,7 @@ from ok import Box  # 使用截图像素坐标限制舰船图标的搜索范围�
 from qfluentwidgets import FluentIcon  # 导入任务列表中使用的内置图标。
 
 from src.tasks.MyBaseTask import MyBaseTask  # 导入项目本地任务基类。
+from src.tasks.feature_ocr import OCR_TEXTS, find_ocr_feature  # 让指定文字元素共用 OCR 及场景约束。
 
 
 class AutoPveBattleTask(MyBaseTask):  # 定义自动完成 PVE 战斗的一次性任务。
@@ -76,6 +77,12 @@ class AutoPveBattleTask(MyBaseTask):  # 定义自动完成 PVE 战斗的一次�
         return min(self.threshold, self.MAP_TEMPLATE_THRESHOLD)  # 用户设置更低阈值时仍尊重其配置。
 
     def find_one(self, feature_name=None, horizontal_variance=0, vertical_variance=0, threshold=0, **kwargs):  # 按元素分别设置局部搜索范围、模板缩放和模式按钮全图搜索。
+        if isinstance(feature_name, (list, tuple)):  # 框架 wait_feature 会把多个页面状态作为列表传入。
+            matches = [self.find_one(name, horizontal_variance, vertical_variance, threshold, **kwargs) for name in feature_name]  # 每个元素分别路由至 OCR 或保留的模板识别。
+            return max((match for match in matches if match is not None), key=lambda match: match.confidence, default=None)  # 保持框架原有最高分选择行为。
+        if feature_name in OCR_TEXTS:  # 用户确认的二十七项只使用 OCR，不回退到像素模板匹配。
+            frame = kwargs.get("frame") if kwargs.get("frame") is not None else self.frame  # 整次查询和弹窗上下文均使用同一截图。
+            return find_ocr_feature(self, feature_name, frame, threshold, kwargs.get("box"))  # 返回带原元素名的文字框供等待、点击及诊断共用。
         if feature_name in self.OPTIONAL_FEATURES and self.get_feature_by_name(feature_name) is None:  # 缺少某个比例的新标注时跳过查询，避免框架抛出模板缺失异常。
             return None  # 缺少模板只表示不能识别该元素，不影响其余已有流程。
         if feature_name == "Pick-First-Ship" and "template" not in kwargs:  # 首艘舰船入口可能因当前舰船卡片尺寸变化而需要多尺度匹配。
@@ -106,16 +113,6 @@ class AutoPveBattleTask(MyBaseTask):  # 定义自动完成 PVE 战斗的一次�
                 frame = self.frame  # 不额外刷新截图，保持整轮场景识别使用同一帧。
             height, width = frame.shape[:2]  # 直接使用截图尺寸，避免窗口比例修正引入坐标偏移。
             kwargs["box"] = Box(0, round(height * 0.10), round(width * 0.10), round(height * 0.40), name="Ship-Icon-Search")  # 搜索左侧百分之十、垂直百分之十至五十的队伍列表区域。
-        if feature_name in ("Continue-Battle", "Continue-Battle-After-Sunk") and kwargs.get("box") is None:  # 两个继续按钮默认只在标注附近搜索，保留调用方显式指定的范围。
-            feature = self.get_feature_by_name(feature_name)  # 读取已按当前画面分辨率缩放的标注区域。
-            if feature is None:  # 缺少标注时无法确定局部搜索范围。
-                return None  # 不退回全图搜索，避免误识别远处相似按钮。
-            kwargs["box"] = Box(round(feature.x - feature.width * 1.5), round(feature.y - feature.height * 1.5), feature.width * 4, feature.height * 4, name=f"{feature_name}-Search")  # 以标注中心将宽高各扩大到四倍，越界部分由底层裁剪。
-        if feature_name in self.BATTLE_MODES:  # 模式按钮保持全图搜索，兼容开放模式导致的位置变化。
-            if horizontal_variance == 0:  # 调用方未指定水平范围时覆盖默认的局部偏移。
-                horizontal_variance = 1  # 使用整屏宽度搜索按钮。
-            if vertical_variance == 0:  # 调用方未指定垂直范围时覆盖默认的局部偏移。
-                vertical_variance = 1  # 使用整屏高度搜索按钮。
         return super().find_one(feature_name, horizontal_variance=horizontal_variance, vertical_variance=vertical_variance, threshold=threshold, **kwargs)  # 其余元素仍走框架默认的局部模板匹配。
 
     @classmethod  # 使用模板原始位置和当前画面尺寸计算稳定的扩大搜索框。

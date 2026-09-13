@@ -4,6 +4,7 @@ from qfluentwidgets import FluentIcon  # 导入任务列表中使用的内置图
 
 from src.config import config as app_config  # 导入应用正式模板配置以避免维护重复元素列表。
 from src.tasks.AutoPveBattleTask import AutoPveBattleTask  # 复用自动 PVE 任务当前使用的完整场景判断规则。
+from src.tasks.feature_ocr import OCR_TEXTS  # 诊断时区分文字识别分数与模板匹配分数。
 
 
 class ScreenRecognitionTestTask(AutoPveBattleTask):  # 像诊断任务一样定义由用户启动并持续运行的只读测试任务。
@@ -42,6 +43,7 @@ class ScreenRecognitionTestTask(AutoPveBattleTask):  # 像诊断任务一样定�
         matched_boxes = []  # 收集超过阈值的候选框，供本轮结束时统一绘制。
         self.log_info(f"开始检查当前屏幕中的 {len(feature_names)} 个元素，阈值为 {self.threshold:.2f}。")  # 记录本次检查范围和匹配阈值。
         for feature_name in feature_names:  # 依次在同一张缓存截图中检查每个正式模板元素。
+            method_label = "OCR" if feature_name in OCR_TEXTS else "模板"  # 显示当前元素实际使用的识别方法。
             if feature_name in ("Area-A", "Area-B", "Area-C", "Area-D"):  # 占领区需要同时判断字母和绿色、红色或灰色状态。
                 feature_box, area_color = self._find_area(feature_name)  # 使用三种颜色模板中的最高分返回字母位置和颜色。
                 if feature_box is None:  # 检查三种颜色是否都没有达到正式阈值。
@@ -53,15 +55,15 @@ class ScreenRecognitionTestTask(AutoPveBattleTask):  # 像诊断任务一样定�
                 continue  # 当前占领区已经完成颜色识别，不再重复使用原始灰色模板。
             feature_box = self.find_one(feature_name, threshold=-1.0)  # 使用最低阈值取得该元素在当前位置附近的最佳原始匹配结果。
             if feature_box is None:  # 检查模板引擎是否返回了可评分的候选区域。
-                self.log_info(f"[无分数] {feature_name}")  # 记录无法生成匹配分数的元素名称。
+                self.log_info(f"[无分数][{method_label}] {feature_name}")  # OCR 无匹配文字时不会提供模板相似度。
                 continue  # 继续检查下一个模板元素。
             confidence = float(feature_box.confidence)  # 把模板引擎返回的置信度转换为普通浮点数。
             if confidence >= self.threshold:  # 判断最佳匹配是否达到任务配置的正式阈值。
                 matched_count += 1  # 累加本帧成功命中的元素数量。
                 matched_boxes.append(feature_box)  # 保存命中框，排除所有低于阈值的候选框。
-                self.log_info(f"[命中] {feature_name}: {confidence * 100:.2f}%")  # 记录命中元素及其百分比置信度。
+                self.log_info(f"[命中][{method_label}] {feature_name}: {confidence * 100:.2f}%")  # 标明文字识别或模板匹配的置信度。
             else:  # 最佳匹配低于正式阈值时只作为诊断分数展示。
-                self.log_info(f"[未命中] {feature_name}: {confidence * 100:.2f}%")  # 记录未命中元素及其最佳原始分数。
+                self.log_info(f"[未命中][{method_label}] {feature_name}: {confidence * 100:.2f}%")  # 记录当前识别方法的候选分数。
         scene = self._detect_scene(refresh=False)  # 使用已经检查过的同一张缓存截图执行共享场景判断。
         self.clear_box()  # 清除模板匹配过程自动产生的低分候选框和蓝色搜索区域。
         if matched_boxes:  # 仅在本轮存在达到阈值的结果时重新启用覆盖层绘框。

@@ -13,6 +13,8 @@ from src.config import config, make_bottom_right_black  # 导入应用配置和�
 from src.resolution_assets import asset_folder_for_size, coco_json_for_size, current_template_folder, pack_for_size, ratio_is_supported, redirect_asset_target, set_pack_override, template_folder_for_size  # 导入按窗口比例选择模板的辅助函数。
 from src.tasks.AutoPveBattleTask import AutoPveBattleTask  # 导入本次新增的自动 PVE 任务。
 from src.tasks.MyBaseTask import MyBaseTask  # 导入任务基类以验证全图搜索覆盖。
+from src.tasks.feature_ocr import search_box  # 检查 OCR 保留的局部搜索边界。
+from tests.ocr_support import bind_ocr  # 为真实截图验证连接应用 OCR。
 
 
 class TestAutoPveBattleTask(unittest.TestCase):  # 定义不共享全局应用状态的自动 PVE 任务测试集合。
@@ -111,14 +113,16 @@ class TestAutoPveBattleTask(unittest.TestCase):  # 定义不共享全局应用�
         feature_set = FeatureSet(False, matching_config["coco_feature_json"], default_horizontal_variance=matching_config["default_horizontal_variance"], default_vertical_variance=matching_config["default_vertical_variance"], default_threshold=matching_config["default_threshold"])  # 创建不依赖 GUI 生命周期的真实模板引擎。
         current_frame = {"value": None}  # 使用可变容器保存当前子测试对应的截图。
 
-        def find_one(feature_name, threshold=0, **kwargs):  # 定义并兼容全屏查询参数的轻量模板查询函数。
-            boxes = feature_set.find_feature(current_frame["value"], feature_name, threshold=threshold, limit=1)  # 在当前参考截图中查找指定特有元素。
-            return boxes[0] if boxes else None  # 有匹配时返回第一个矩形框，否则返回空值。
+        bind_ocr(self.executor)  # 所有场景均经过正式的 OCR/模板混合识别路径。
+        self.executor.feature_set = feature_set  # 保留未迁移的地图和舰船模板引擎。
 
         for image_name, expected_scene in expected_scenes.items():  # 逐张加载用户已标注的参考截图。
             with self.subTest(image=image_name):  # 在失败信息中保留具体截图名称。
                 current_frame["value"] = make_bottom_right_black(cv2.imread(os.path.join("ok_templates", "21x9", image_name)))  # 按正式截图处理方式加载参考图片。
-                with patch.object(self.task, "next_frame", return_value=current_frame["value"]), patch.object(self.task, "find_one", side_effect=find_one):  # 把任务场景判断连接到真实模板查询函数。
+                self.executor.frame = current_frame["value"]  # 设置任务实际读取的同一帧。
+                self.executor.method.width = current_frame["value"].shape[1]  # 提供模板缩放所需的画面尺寸。
+                self.executor.method.height = current_frame["value"].shape[0]
+                with patch.object(self.task, "next_frame", return_value=current_frame["value"]):  # 仅替换截图来源，不绕过实际识别。
                     self.assertEqual(expected_scene, self.task._detect_scene())  # 确认特有元素能够判断出预期页面。
 
     @unittest.skipUnless(os.path.isdir(os.path.join("ok_templates", "21x9")), "Local reference screenshots are not available.")  # 仅在本地原始模板目录存在时运行确认按钮验证。
@@ -136,6 +140,7 @@ class TestAutoPveBattleTask(unittest.TestCase):  # 定义不共享全局应用�
 
     @unittest.skipUnless(os.path.isfile(os.path.join("ok_templates", "21x9", "23.png")), "Continue-battle confirmation screenshot is not available.")  # 仅在本地二十三号截图存在时验证局部搜索排除远处相似按钮。
     def test_continue_battle_button_excludes_confirmation_outside_local_region(self):  # 验证结算页模板不会跨区域命中确认框中心的相似按钮。
+        bind_ocr(self.executor)  # 同名按钮排除逻辑必须走真实 OCR。
         matching_config = config["template_matching"]  # 读取应用真实模板引擎参数。
         feature_set = FeatureSet(False, matching_config["coco_feature_json"], default_horizontal_variance=matching_config["default_horizontal_variance"], default_vertical_variance=matching_config["default_vertical_variance"], default_threshold=matching_config["default_threshold"])  # 创建与正式任务一致的模板引擎。
         frame = make_bottom_right_black(cv2.imread(os.path.join("ok_templates", "21x9", "23.png")))  # 按正式截图预处理方式加载二十三号确认框截图。
@@ -460,13 +465,13 @@ class TestAutoPveBattleTask(unittest.TestCase):  # 定义不共享全局应用�
     def test_find_one_uses_fourfold_local_search_for_continue_buttons(self):  # 验证两个继续按钮均围绕标注中心搜索且保留显式范围。
         feature = Box(300, 200, 100, 40)  # 构造标注中心位于三百五十、二百二十的按钮。
         for feature_name in ("Continue-Battle", "Continue-Battle-After-Sunk"):  # 同时覆盖结算页与击沉后续页。
-            with self.subTest(feature_name=feature_name), patch.object(self.task, "get_feature_by_name", return_value=feature), patch.object(MyBaseTask, "find_one", return_value=None) as super_find:  # 隔离模板读取和底层匹配。
-                self.task.find_one(feature_name, threshold=0.8)  # 使用默认搜索范围查找。
-                search_box = super_find.call_args.kwargs["box"]  # 读取交给匹配器的实际区域。
-                self.assertEqual((150, 140, 400, 160), (search_box.x, search_box.y, search_box.width, search_box.height))  # 宽高各四倍且中心不变。
+            with self.subTest(feature_name=feature_name), patch("src.tasks.feature_ocr.annotated_box", return_value=feature):  # 隔离坐标元数据，验证 OCR 的默认范围。
+                region = search_box(feature_name, np.zeros((1080, 2560, 3), dtype=np.uint8))  # 根据实际截图尺寸裁剪搜索框。
+                self.assertEqual((150, 140, 400, 160), (region.x, region.y, region.width, region.height))  # 宽高各四倍且中心不变。
                 explicit_box = Box(10, 20, 200, 80)  # 模拟调用方指定更小的搜索范围。
-                self.task.find_one(feature_name, threshold=0.8, box=explicit_box)  # 指定范围后再次查找。
-                self.assertIs(explicit_box, super_find.call_args.kwargs["box"])  # 显式区域不能被默认四倍区域覆盖。
+                with patch("src.tasks.AutoPveBattleTask.find_ocr_feature", return_value=None) as find_ocr:  # 验证显式范围传给 OCR，不再进入模板匹配。
+                    self.task.find_one(feature_name, threshold=0.8, box=explicit_box)
+                self.assertIs(explicit_box, find_ocr.call_args.args[4])  # 显式范围原样保留。
 
     def test_resolution_packs_pick_coco_by_window_ratio(self):  # 验证 21:9、16:10、16:9 窗口会选中对应的子目录。
         self.assertEqual(os.path.join("assets", "21x9", "coco_annotations.json"), coco_json_for_size(5120, 2160))  # 超宽屏使用 21:9 标注。

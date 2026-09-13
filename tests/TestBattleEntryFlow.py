@@ -11,6 +11,7 @@ from ok import Box, FeatureSet
 from src.config import config, make_bottom_right_black
 from src.tasks.AutoPveBattleTask import AutoPveBattleTask
 from src.tasks.ScreenRecognitionTestTask import ScreenRecognitionTestTask
+from tests.ocr_support import bind_ocr
 
 
 class TestBattleEntryFlow(unittest.TestCase):
@@ -62,14 +63,16 @@ class TestBattleEntryFlow(unittest.TestCase):
                     frame[y:y+height, x:x+width] = template
                     match = self.task.find_one(mode, threshold=self.task.threshold)
                     self.assertIsNotNone(match)
-                    self.assertEqual((x, y), (match.x, match.y))
+                    self.assertTrue(x <= match.center()[0] <= x + width)
+                    self.assertTrue(y <= match.center()[1] <= y + height)
                     self.assertEqual("battle_mode", self.task._detect_scene(refresh=False))
                     # Exercise the framework's real wait/click path, replacing only waiting and input.
                     with patch.object(self.task, "wait_until", side_effect=lambda predicate, **kwargs: predicate()), \
                             patch.object(self.task, "click_box") as click:
                         self.assertTrue(self.task.wait_click_feature(mode, threshold=self.task.threshold))
                     clicked = click.call_args.args[0]
-                    self.assertEqual((x, y), (clicked.x, clicked.y))
+                    self.assertTrue(x <= clicked.center()[0] <= x + width)
+                    self.assertTrue(y <= clicked.center()[1] <= y + height)
 
     def test_unavailable_selected_mode_does_not_click_the_other_visible_mode(self):
         for selected in self.task.BATTLE_MODES:
@@ -383,6 +386,7 @@ class TestBattleEntryFlow(unittest.TestCase):
                 self.assertIsNone(self.task.find_one(feature, threshold=self.task.threshold))
 
     def bind_frame(self, frame):
+        bind_ocr(self.executor)
         matching = config["template_matching"]
         self.executor.feature_set = FeatureSet(False, matching["coco_feature_json"],
                                               matching["default_horizontal_variance"],
