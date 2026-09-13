@@ -12,7 +12,7 @@ from ok import Box, FeatureSet
 from src.config import config, make_bottom_right_black
 from src.tasks.AutoPveBattleTask import AutoPveBattleTask
 from src.tasks.MyBaseTask import MyBaseTask
-from src.tasks.feature_ocr import OCR_TEXTS, annotated_box, find_text, search_box
+from src.tasks.feature_ocr import OCR_TEXTS, SHIP_NAME_FEATURES, annotated_box, find_text, search_box
 from tests.ocr_support import bind_ocr
 
 
@@ -32,7 +32,7 @@ class TestFeatureOCR(unittest.TestCase):
         template.assert_not_called()
 
     def test_unselected_features_keep_template_recognition(self):
-        names = ("Addon-Selector", "Libertad-Nameplate", "In-Battle-Compass", "Map-M-Button", "Map-B-Button", "Enemy-Base")
+        names = ("Addon-Selector", "In-Battle-Compass", "Map-M-Button", "Map-B-Button", "Enemy-Base")
         with patch.object(self.task, "ocr") as ocr, patch.object(MyBaseTask, "find_one", return_value=None) as template:
             for name in names:
                 self.task.find_one(name)
@@ -95,7 +95,7 @@ class TestFeatureOCR(unittest.TestCase):
         tested = set()
         for annotation in data["annotations"]:
             name = names[annotation["category_id"]]
-            if name not in OCR_TEXTS:
+            if name not in OCR_TEXTS or name in SHIP_NAME_FEATURES:  # 舰名迁移另用原始尺寸测试，不加入缩放用例。
                 continue
             frame = make_bottom_right_black(cv2.imread(str(root / images[annotation["image_id"]]["file_name"])))
             for scale in (1, .5):

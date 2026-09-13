@@ -403,3 +403,19 @@ msgstr "采集战斗截图"
 #: src/tasks/AutoPveBattleTask.py
 msgid "Save battle and tactical-map screenshots every minute during battle."
 msgstr "战斗期间每分钟保存一张战斗界面和一张大地图截图。"
+
+#: src/tasks/AutoPveBattleTask.py
+msgid "Ship Name"
+msgstr "舰船名称"
+
+#: src/tasks/AutoPveBattleTask.py
+msgid "Enter the ship name shown in the game. Used for both port selection and battle recognition. Keep the ship visible near the first card."
+msgstr "填写游戏中显示的舰船名称，用于港口选船和战斗内铭牌识别。请让目标船显示在首张卡片附近。"
+
+#: src/tasks/AutoPveBattleTask.py
+msgid "Ship Name must be a non-empty single-line name."
+msgstr "舰船名称不能为空，且必须为单行有效文字。"
+
+#: src/tasks/AutoPveBattleTask.py
+msgid "自由"
+msgstr "自由"

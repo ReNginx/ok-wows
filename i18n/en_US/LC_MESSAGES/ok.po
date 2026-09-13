@@ -411,3 +411,19 @@ msgstr "Capture Battle Dataset"
 #: src/tasks/AutoPveBattleTask.py
 msgid "Save battle and tactical-map screenshots every minute during battle."
 msgstr "Save battle and tactical-map screenshots every minute during battle."
+
+#: src/tasks/AutoPveBattleTask.py
+msgid "Ship Name"
+msgstr "Ship Name"
+
+#: src/tasks/AutoPveBattleTask.py
+msgid "Enter the ship name shown in the game. Used for both port selection and battle recognition. Keep the ship visible near the first card."
+msgstr "Enter the ship name shown in the game. Used for both port selection and battle recognition. Keep the ship visible near the first card."
+
+#: src/tasks/AutoPveBattleTask.py
+msgid "Ship Name must be a non-empty single-line name."
+msgstr "Ship Name must be a non-empty single-line name."
+
+#: src/tasks/AutoPveBattleTask.py
+msgid "自由"
+msgstr "自由"

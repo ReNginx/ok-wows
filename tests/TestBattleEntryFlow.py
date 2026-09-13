@@ -117,7 +117,7 @@ class TestBattleEntryFlow(unittest.TestCase):
         self.assertEqual((4000, 1500), (match.x, match.y))
 
     @unittest.skipUnless(Path("ok_templates/21x9/28.png").is_file(), "Non-Libertad reference screenshot unavailable")
-    def test_first_ship_matches_non_libertad_port_screenshot_with_expanded_multiscale_search(self):
+    def test_configured_ship_matches_port_screenshot_without_resizing(self):
         frame = cv2.imread("ok_templates/21x9/28.png")
         self.bind_frame(frame)
         match = self.task.find_one("Pick-First-Ship", threshold=self.task.threshold)

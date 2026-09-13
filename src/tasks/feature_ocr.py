@@ -2,6 +2,7 @@
 
 import json  # 读取各比例现有标注的位置。
 import re  # 规范空格、标点和英文大小写。
+import unicodedata  # 统一 OCR 可能输出的全角舰船等级字符。
 from functools import lru_cache  # 缓存只读标注，避免每次识别重复读取文件。
 from pathlib import Path  # 从项目根目录解析资源路径。
 
@@ -10,7 +11,13 @@ from ok import Box  # 返回框架可直接点击及绘制的识别框。
 from src.resolution_assets import coco_json_for_size  # 沿用当前分辨率的资源包选择。
 
 
-OCR_TEXTS = {  # 仅替换用户确认的二十七个元素，英文文案同时作为候选。
+DEFAULT_SHIP_NAME = "自由"  # 旧配置没有舰船名称时继续识别原来的船。
+SHIP_NAME_FEATURES = frozenset(("Pick-First-Ship", "Libertad-Nameplate"))  # 港口卡片和战斗铭牌共用用户输入。
+
+
+OCR_TEXTS = {  # 两项舰名动态读取配置，其余元素保留固定的中英文候选。
+    "Pick-First-Ship": (),
+    "Libertad-Nameplate": (),
     "Leave-Queue": ("离开队列", "Leave queue"),
     "Start-Battle": ("开始战斗", "Start battle"),
     "Back-To-Port": ("回到港口", "Back to port", "Return to port"),
@@ -43,6 +50,20 @@ OCR_TEXTS = {  # 仅替换用户确认的二十七个元素，英文文案同时
 
 def normalized(text):  # 完整文字匹配允许空白、大小写和标点差异，不使用单字模糊匹配。
     return re.sub(r"[\W_]+", "", text.casefold())
+
+
+def ship_name(task):  # 配置缺失时兼容旧用户，空值或错误类型不能静默选回默认舰船。
+    value = task.config.get("Ship Name", DEFAULT_SHIP_NAME)
+    return value.strip() if isinstance(value, str) else ""
+
+
+def matches_ship_name(text, wanted):  # 允许 OCR 把舰船等级与名字合并，但不接受仅包含目标名的其他船。
+    actual = normalized(unicodedata.normalize("NFKC", text))
+    expected = normalized(unicodedata.normalize("NFKC", wanted))
+    if not expected:
+        return False
+    return actual == expected or any(actual == tier + expected for tier in
+                                     ("i", "ii", "iii", "iv", "v", "vi", "vii", "viii", "ix", "x", "xi"))
 
 
 @lru_cache(maxsize=3)
@@ -80,6 +101,8 @@ def search_box(name, frame):  # 采用实测过的邻近扩展范围，保留上
         return None
     height, width = frame.shape[:2]
     dx, dy = max(width * .035, feature.width * .35), max(height * .025, feature.height * .5)
+    if name in SHIP_NAME_FEATURES:
+        dx = max(width * .055, feature.width * .5) if name == "Pick-First-Ship" else dx  # 港口卡片适当加宽，战斗铭牌仍限制在左下角附近。
     if name in ("Continue-Battle", "Continue-Battle-After-Sunk"):
         dx, dy = feature.width * 1.5, feature.height * 1.5  # 同名按钮仍使用原有四倍局部范围。
     right = feature.x + feature.width + dx
@@ -91,7 +114,7 @@ def search_box(name, frame):  # 采用实测过的邻近扩展范围，保留上
 def read_text(task, frame, region):  # 通过框架 OCR 处理繁简转换和坐标恢复，不刷新截图。
     if region is None:
         return []
-    return task.ocr(box=region, frame=frame, threshold=.5)
+    return task.ocr(box=region, frame=frame, threshold=.5, target_height=0)  # 直接识别原始裁剪，不指定目标高度或重采样截图。
 
 
 def find_text(task, name, frame, threshold, box=None):  # 将文字匹配结果转换回原元素名，兼容等待和点击流程。
@@ -102,9 +125,13 @@ def find_text(task, name, frame, threshold, box=None):  # 将文字匹配结果�
     if region is None:
         return None
     accepted = {normalized(text) for text in OCR_TEXTS[name]}
+    wanted = ship_name(task) if name in SHIP_NAME_FEATURES else ""  # 每次查询读取当前配置，修改船名立即影响两个识别入口。
+    if name in SHIP_NAME_FEATURES and not normalized(wanted):
+        return None  # 空船名不能退化成匹配任意文字。
     matches = [item for item in read_text(task, frame, region)
                if item.confidence >= threshold and
                (normalized(item.name) in accepted or
+                (name in SHIP_NAME_FEATURES and matches_ship_name(item.name, wanted)) or
                 (name == "Control-Camera" and any(text in normalized(item.name) for text in accepted)))]  # F1 可能与完整提示合成同一行，仅该状态提示允许包含匹配。
     if len(matches) != 1:  # 同一区域存在多个同名文字时不选择可能错误的点击目标。
         return None
@@ -117,6 +144,10 @@ def find_ocr_feature(task, name, frame, threshold=0, box=None):  # 对同文案�
         return None
     threshold = threshold if threshold else task.threshold
     context_threshold = max(.8, threshold)  # 诊断的低阈值不能绕过确认弹窗的上下文检查。
+    if name in SHIP_NAME_FEATURES:
+        in_port = find_text(task, "Join-Battle", frame, context_threshold) is not None  # 港口和战斗中的同名文字位置接近，必须区分页面。
+        if (name == "Pick-First-Ship") != in_port:
+            return None  # 港口只识别选船入口；加入战斗按钮存在时不把卡片当战斗铭牌。
     if name in ("Leave-Battle-Confirm", "Continue-Battle-After-Sunk"):
         if find_text(task, "Leave-Battle-Title", frame, context_threshold) is None:
             return None

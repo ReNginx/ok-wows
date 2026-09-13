@@ -11,7 +11,7 @@ from ok import Box  # 使用截图像素坐标限制舰船图标的搜索范围�
 from qfluentwidgets import FluentIcon  # 导入任务列表中使用的内置图标。
 
 from src.tasks.MyBaseTask import MyBaseTask  # 导入项目本地任务基类。
-from src.tasks.feature_ocr import OCR_TEXTS, find_ocr_feature  # 让指定文字元素共用 OCR 及场景约束。
+from src.tasks.feature_ocr import DEFAULT_SHIP_NAME, OCR_TEXTS, find_ocr_feature, normalized  # 共用文字识别及用户指定舰名。
 
 
 class AutoPveBattleTask(MyBaseTask):  # 定义自动完成 PVE 战斗的一次性任务。
@@ -32,10 +32,6 @@ class AutoPveBattleTask(MyBaseTask):  # 定义自动完成 PVE 战斗的一次�
     BATTLE_MODES = ("PVE-Battle", "Asymmetry-Battle")  # 下拉选项直接对应正式标注名称。
     SCREEN_BUTTONS = {"login": "Login-Game", "claim_reward": "Claim-Reward", "reward_screen": "Close-Reward-Screen"}  # 按登录、领取、关闭的顺序处理入口和奖励页面。
     OPTIONAL_FEATURES = (*SCREEN_BUTTONS.values(), "Control-Camera", "Asymmetry-Battle", "Container-Menu", "Pick-Container", "Confirm-Container")  # 部分比例尚未提供这些新模板，场景识别允许跳过。
-    FIRST_SHIP_SEARCH_VARIANCE = 0.002  # 沿用框架默认的首艘舰船入口位置偏移作为扩大搜索框的基准。
-    FIRST_SHIP_SCALE_MIN = 0.8  # 首艘舰船入口允许的最小模板缩放比例。
-    FIRST_SHIP_SCALE_MAX = 1.2  # 首艘舰船入口允许的最大模板缩放比例。
-    FIRST_SHIP_SCALE_STEP = 0.05  # 多尺度匹配每次缩放五个百分点，覆盖 0.8 到 1.2。
 
     def __init__(self, *args, **kwargs):  # 初始化任务元数据和可配置参数。
         super().__init__(*args, **kwargs)  # 首先初始化 ok-script 的基础任务能力。
@@ -46,6 +42,7 @@ class AutoPveBattleTask(MyBaseTask):  # 定义自动完成 PVE 战斗的一次�
         self.default_config.update({  # 添加任务运行时可由用户调整的配置。
             "Battle Count": 1,  # 默认完成一场战斗后停止。
             "Battle Mode": "PVE-Battle",  # 默认沿用 PVE 模式以兼容原有配置。
+            "Ship Name": DEFAULT_SHIP_NAME,  # 框架用字符串默认值生成可编辑的舰船名称输入框。
             "Close Game After Completion": False,  # 默认保留游戏运行，由用户按需开启完成后关闭功能。
             "Capture Battle Dataset": False,  # 默认关闭数据集采集，仅在用户开启后定时截图。
             "Template Threshold": 0.8,  # 默认使用与项目一致的模板匹配阈值。
@@ -53,13 +50,17 @@ class AutoPveBattleTask(MyBaseTask):  # 定义自动完成 PVE 战斗的一次�
         self.config_description.update({  # 添加配置项在界面中的帮助说明。
             "Battle Count": "Number of completed battles before the task stops.",  # 说明战斗场数的含义。
             "Battle Mode": "Select PVE or Asymmetry battle mode.",  # 说明模式选择在首场准备时生效。
+            "Ship Name": "Enter the ship name shown in the game. Used for both port selection and battle recognition. Keep the ship visible near the first card.",  # 说明按当前游戏语言输入，并让目标船显示在首张卡片附近。
             "Close Game After Completion": "Close the game after the configured number of battles is completed.",  # 说明开关只在成功达到目标场数后关闭游戏。
             "Capture Battle Dataset": "Save battle and tactical-map screenshots every minute during battle.",  # 说明开关控制每分钟的战斗和地图截图采集。
             "Template Threshold": "Minimum confidence required for template matching.",  # 说明匹配阈值的含义。
         })  # 完成配置说明定义。
         self.config_type["Battle Mode"] = {"type": "drop_down", "options": list(self.BATTLE_MODES)}  # 使用框架原生下拉框展示两种模式。
+        self.config_type["Ship Name"] = {"type": "line_edit"}  # 舰船名称使用可编辑的单行字符串输入框。
 
     def validate_config(self, key, value):  # 在用户保存配置时检查输入是否合法。
+        if key == "Ship Name" and (not isinstance(value, str) or not normalized(value) or "\n" in value or "\r" in value):  # 船名必须为单行有效文字，拒绝空白或只有标点。
+            return "Ship Name must be a non-empty single-line name."
         if key == "Battle Mode" and value not in self.BATTLE_MODES:  # 限制选择已支持的模式。
             return "Select PVE or Asymmetry battle mode."  # 返回可翻译的配置校验提示。
         if key == "Battle Count" and (not isinstance(value, int) or isinstance(value, bool) or value < 1):  # 要求战斗场数是至少为一的整数。
@@ -80,30 +81,11 @@ class AutoPveBattleTask(MyBaseTask):  # 定义自动完成 PVE 战斗的一次�
         if isinstance(feature_name, (list, tuple)):  # 框架 wait_feature 会把多个页面状态作为列表传入。
             matches = [self.find_one(name, horizontal_variance, vertical_variance, threshold, **kwargs) for name in feature_name]  # 每个元素分别路由至 OCR 或保留的模板识别。
             return max((match for match in matches if match is not None), key=lambda match: match.confidence, default=None)  # 保持框架原有最高分选择行为。
-        if feature_name in OCR_TEXTS:  # 用户确认的二十七项只使用 OCR，不回退到像素模板匹配。
+        if feature_name in OCR_TEXTS:  # 已迁移的二十九项只使用 OCR，不回退到像素模板匹配。
             frame = kwargs.get("frame") if kwargs.get("frame") is not None else self.frame  # 整次查询和弹窗上下文均使用同一截图。
             return find_ocr_feature(self, feature_name, frame, threshold, kwargs.get("box"))  # 返回带原元素名的文字框供等待、点击及诊断共用。
         if feature_name in self.OPTIONAL_FEATURES and self.get_feature_by_name(feature_name) is None:  # 缺少某个比例的新标注时跳过查询，避免框架抛出模板缺失异常。
             return None  # 缺少模板只表示不能识别该元素，不影响其余已有流程。
-        if feature_name == "Pick-First-Ship" and "template" not in kwargs:  # 首艘舰船入口可能因当前舰船卡片尺寸变化而需要多尺度匹配。
-            feature = self.get_feature_by_name(feature_name)  # 读取当前分辨率对应的原始模板及其标注位置。
-            frame = kwargs.get("frame") if kwargs.get("frame") is not None else self.frame  # 显式截图优先，否则使用任务当前缓存帧。
-            search_box = kwargs.get("box")  # 调用方显式指定范围时保留其搜索范围。
-            if search_box is None and feature is not None and frame is not None:  # 没有显式范围时围绕标注位置创建约两倍大小的搜索框。
-                search_box = self._expanded_first_ship_box(feature, frame)  # 扩大位置搜索区域，同时保证最大模板仍能放入区域。
-            best_match = None  # 保存所有缩放候选中置信度最高的结果。
-            scale = self.FIRST_SHIP_SCALE_MIN  # 从百分之八十的模板尺寸开始尝试。
-            while scale <= self.FIRST_SHIP_SCALE_MAX + 1e-9:  # 覆盖包含上下边界的 0.8 到 1.2 区间。
-                scaled_template = cv2.resize(feature.mat, None, fx=scale, fy=scale, interpolation=cv2.INTER_AREA if scale < 1 else cv2.INTER_CUBIC)  # 按当前比例生成候选模板。
-                match_kwargs = dict(kwargs)  # 为每个候选复制参数，避免改变调用方传入的字典。
-                if search_box is not None:  # 只有能确定范围时才覆盖底层默认的局部搜索框。
-                    match_kwargs["box"] = search_box  # 使用扩大后的首艘舰船入口搜索区域。
-                match_kwargs["template"] = scaled_template  # 将当前缩放后的模板交给底层模板匹配器。
-                match = super().find_one(feature_name, horizontal_variance=horizontal_variance, vertical_variance=vertical_variance, threshold=threshold, **match_kwargs)  # 执行当前缩放比例的实际匹配。
-                if match is not None and (best_match is None or match.confidence > best_match.confidence):  # 仅保留置信度最高的命中。
-                    best_match = match  # 更新首艘舰船入口的最佳多尺度结果。
-                scale = round(scale + self.FIRST_SHIP_SCALE_STEP, 2)  # 避免浮点累积误差并进入下一个比例。
-            return best_match  # 返回所有 0.8 到 1.2 倍候选中的最佳结果。
         if feature_name == "Ship-Icon":  # 黄色舰船轮廓单独评分，避免天空、海面和灰色队友图标影响判断。
             kwargs.setdefault("mask_function", self._ship_icon_yellow_mask)  # 模板中只有黄色像素参与相关性计算，背景完全排除。
             kwargs.setdefault("frame_processor", self._ship_icon_yellow_pixels)  # 候选区域也仅保留黄色，避免灰色轮廓因形状相同而命中。
@@ -114,17 +96,6 @@ class AutoPveBattleTask(MyBaseTask):  # 定义自动完成 PVE 战斗的一次�
             height, width = frame.shape[:2]  # 直接使用截图尺寸，避免窗口比例修正引入坐标偏移。
             kwargs["box"] = Box(0, round(height * 0.10), round(width * 0.10), round(height * 0.40), name="Ship-Icon-Search")  # 搜索左侧百分之十、垂直百分之十至五十的队伍列表区域。
         return super().find_one(feature_name, horizontal_variance=horizontal_variance, vertical_variance=vertical_variance, threshold=threshold, **kwargs)  # 其余元素仍走框架默认的局部模板匹配。
-
-    @classmethod  # 使用模板原始位置和当前画面尺寸计算稳定的扩大搜索框。
-    def _expanded_first_ship_box(cls, feature, frame):  # 将框架默认搜索区域的宽高扩大约两倍并保持中心不变。
-        frame_height, frame_width = frame.shape[:2]  # 读取当前截图的实际分辨率。
-        base_width = feature.width + 2 * frame_width * cls.FIRST_SHIP_SEARCH_VARIANCE  # 计算原默认搜索区域的宽度。
-        base_height = feature.height + 2 * frame_height * cls.FIRST_SHIP_SEARCH_VARIANCE  # 计算原默认搜索区域的高度。
-        expanded_width = round(base_width * 2)  # 将原区域宽度扩大约两倍。
-        expanded_height = round(base_height * 2)  # 将原区域高度扩大约两倍。
-        center_x = feature.x + feature.width / 2  # 使用模板中心作为扩大区域中心。
-        center_y = feature.y + feature.height / 2  # 使用模板中心作为扩大区域中心。
-        return Box(round(center_x - expanded_width / 2), round(center_y - expanded_height / 2), expanded_width, expanded_height, name="Pick-First-Ship-Search")  # 返回允许越过屏幕边界后由底层自动裁剪的搜索框。
 
     @staticmethod  # 固定颜色规则供模板掩码和当前截图共用。
     def _ship_icon_yellow_mask(image):  # 按 HSV 色相、饱和度和亮度提取黄色轮廓。
@@ -209,7 +180,7 @@ class AutoPveBattleTask(MyBaseTask):  # 定义自动完成 PVE 战斗的一次�
             self.sleep(1)  # 刷新画面并响应用户停止，下一轮等待领取按钮就绪。
 
     def _prepare_and_join_first_battle(self):  # 在主界面完成首场战斗的全部准备动作。
-        if not self.wait_click_feature("Pick-First-Ship", threshold=self.threshold, time_out=15, raise_if_not_found=False, after_sleep=1):  # 点击第一个舰船选择入口。
+        if not self.wait_click_feature("Pick-First-Ship", threshold=self.threshold, time_out=15, raise_if_not_found=False, after_sleep=1):  # 在首张卡片附近点击配置的舰名文字。
             return False  # 找不到舰船入口时报告准备失败。
         if not self.wait_click_feature("Select-Battle-Mode", threshold=self.threshold, time_out=15, raise_if_not_found=False, after_sleep=1):  # 打开战斗模式选择页面。
             return False  # 找不到战斗模式入口时报告准备失败。
@@ -652,7 +623,7 @@ class AutoPveBattleTask(MyBaseTask):  # 定义自动完成 PVE 战斗的一次�
         return any(self.find_one(feature_name, threshold=self.threshold) is not None for feature_name in feature_names)  # 依次匹配并在发现首个元素时返回真。
 
     def _detect_battle_view(self):  # 使用铭牌确认战斗状态，再用两个地图按钮共同确认大地图。
-        nameplate_visible = self.find_one("Libertad-Nameplate", threshold=self.map_threshold) is not None  # 使用地图专用阈值检查两个页面都会出现的 Libertad 舰船铭牌。
+        nameplate_visible = self.find_one("Libertad-Nameplate", threshold=self.map_threshold) is not None  # 使用用户配置的舰名识别战斗和地图共有的铭牌。
         if not nameplate_visible:  # 没有舰船铭牌时不能确认已经进入战斗。
             return None  # 交给后续其他页面特征继续判断。
         if any(self.get_feature_by_name(name) is None for name in self.MAP_VIEW_FEATURES):  # 当前比例必须具备两个地图按钮模板才能可靠区分视图。
