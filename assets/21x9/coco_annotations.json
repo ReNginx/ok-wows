@@ -68,7 +68,7 @@
         },
         {
             "id": 17,
-            "file_name": "images/packed-f82c7327082b87bf56ab391da9bfab70d19d03fb6b251715bc6490f282912b2b.png",
+            "file_name": "images/packed-f9a27bda63f5984f2099f23eb46632ca1b43b224a2131ba8944592e6e8080abe.png",
             "width": 5120,
             "height": 2160
         },
@@ -92,7 +92,7 @@
         },
         {
             "id": 27,
-            "file_name": "images/packed-f82c7327082b87bf56ab391da9bfab70d19d03fb6b251715bc6490f282912b2b.png",
+            "file_name": "images/packed-f9a27bda63f5984f2099f23eb46632ca1b43b224a2131ba8944592e6e8080abe.png",
             "width": 5120,
             "height": 2160
         },
@@ -111,6 +111,24 @@
         {
             "id": 30,
             "file_name": "images/packed-fd50e2def3e150abffa28e13478ff2d27312b5e284944c5d9da97682f37422be.png",
+            "width": 5120,
+            "height": 2160
+        },
+        {
+            "id": 31,
+            "file_name": "images/packed-676d394a4b86679a156ed0304bc8090ada7ce3e305cc109645f626eaec8bf115.png",
+            "width": 5120,
+            "height": 2160
+        },
+        {
+            "id": 32,
+            "file_name": "images/packed-676d394a4b86679a156ed0304bc8090ada7ce3e305cc109645f626eaec8bf115.png",
+            "width": 5120,
+            "height": 2160
+        },
+        {
+            "id": 33,
+            "file_name": "images/packed-676d394a4b86679a156ed0304bc8090ada7ce3e305cc109645f626eaec8bf115.png",
             "width": 5120,
             "height": 2160
         }
@@ -407,12 +425,12 @@
             "image_id": 17,
             "category_id": 19,
             "bbox": [
-                1647,
-                151,
+                1649,
+                209,
                 1821,
-                1749
+                1686
             ],
-            "area": 3184929,
+            "area": 3070206,
             "iscrowd": 0
         },
         {
@@ -582,6 +600,45 @@
                 18
             ],
             "area": 2682,
+            "iscrowd": 0
+        },
+        {
+            "id": 37,
+            "image_id": 33,
+            "category_id": 37,
+            "bbox": [
+                2312,
+                1264,
+                230,
+                61
+            ],
+            "area": 14030,
+            "iscrowd": 0
+        },
+        {
+            "id": 38,
+            "image_id": 32,
+            "category_id": 38,
+            "bbox": [
+                64,
+                648,
+                94,
+                20
+            ],
+            "area": 1880,
+            "iscrowd": 0
+        },
+        {
+            "id": 39,
+            "image_id": 31,
+            "category_id": 39,
+            "bbox": [
+                20,
+                708,
+                88,
+                29
+            ],
+            "area": 2552,
             "iscrowd": 0
         }
     ],
@@ -764,6 +821,21 @@
         {
             "id": 36,
             "name": "Ship-Icon",
+            "supercategory": ""
+        },
+        {
+            "id": 37,
+            "name": "Confirm-Container",
+            "supercategory": ""
+        },
+        {
+            "id": 38,
+            "name": "Pick-Container",
+            "supercategory": ""
+        },
+        {
+            "id": 39,
+            "name": "Container-Menu",
             "supercategory": ""
         }
     ]

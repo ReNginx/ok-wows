@@ -130,18 +130,19 @@ class TestAutoPveBattleTask(unittest.TestCase):  # 定义不共享全局应用�
         boxes = feature_set.find_feature(frame, "Leave-Battle-Confirm", threshold=self.task.threshold, limit=1)  # 在确认页面中匹配确认离开按钮。
         self.assertTrue(boxes)  # 确认模板能够稳定找到用户标注的按钮。
 
-    @unittest.skipUnless(os.path.isfile(os.path.join("ok_templates", "21x9", "23.png")), "Continue-battle confirmation screenshot is not available.")  # 仅在本地二十三号截图存在时运行全图识别验证。
-    def test_continue_battle_button_matches_full_screen_on_confirmation(self):  # 验证继续战斗按钮能在确认框中心被全图识别。
+    @unittest.skipUnless(os.path.isfile(os.path.join("ok_templates", "21x9", "23.png")), "Continue-battle confirmation screenshot is not available.")  # 仅在本地二十三号截图存在时验证局部搜索排除远处相似按钮。
+    def test_continue_battle_button_excludes_confirmation_outside_local_region(self):  # 验证结算页模板不会跨区域命中确认框中心的相似按钮。
         matching_config = config["template_matching"]  # 读取应用真实模板引擎参数。
         feature_set = FeatureSet(False, matching_config["coco_feature_json"], default_horizontal_variance=matching_config["default_horizontal_variance"], default_vertical_variance=matching_config["default_vertical_variance"], default_threshold=matching_config["default_threshold"])  # 创建与正式任务一致的模板引擎。
         frame = make_bottom_right_black(cv2.imread(os.path.join("ok_templates", "21x9", "23.png")))  # 按正式截图预处理方式加载二十三号确认框截图。
-        self.task.executor.feature_set = feature_set  # 将任务连接到真实模板引擎以执行全图匹配。
+        self.task.executor.feature_set = feature_set  # 将任务连接到真实模板引擎以执行局部匹配。
         self.task.executor.frame = frame  # 把二十三号截图设置为任务正在处理的最新帧。
-        self.task.executor.method.width = frame.shape[1]  # 提供全屏搜索框计算所需的画面宽度。
-        self.task.executor.method.height = frame.shape[0]  # 提供全屏搜索框计算所需的画面高度。
-        button = self.task.find_one("Continue-Battle", threshold=self.task.threshold)  # 使用任务覆盖后的全图搜索识别继续战斗按钮。
-        self.assertIsNotNone(button)  # 确认默认局部搜索无法覆盖的中心确认框也能命中。
-        self.assertGreaterEqual(button.confidence, self.task.threshold)  # 确认全图匹配分数达到正式阈值。
+        self.task.executor.method.width = frame.shape[1]  # 提供模板引擎所需的画面宽度。
+        self.task.executor.method.height = frame.shape[0]  # 提供模板引擎所需的画面高度。
+        full_screen_matches = feature_set.find_feature(frame, "Continue-Battle", horizontal_variance=1, vertical_variance=1, threshold=self.task.threshold, limit=1)  # 确认该截图确实存在全图搜索会命中的相似按钮。
+        self.assertTrue(full_screen_matches)  # 避免因截图中没有相似按钮而让局部排除测试无效。
+        button = self.task.find_one("Continue-Battle", threshold=self.task.threshold)  # 使用标注宽高各四倍的局部范围搜索。
+        self.assertIsNone(button)  # 确认范围外的中心确认框不再被结算页模板命中。
 
     def test_map_selects_nearest_recognized_area_without_requiring_all_four(self):  # 验证只识别到部分区域时也会选择其中最近的一个。
         map_overview = Box(0, 0, 300, 300, name="Map-Overview")  # 构造十九号截图标注对应的主地图范围。
@@ -155,7 +156,7 @@ class TestAutoPveBattleTask(unittest.TestCase):  # 定义不共享全局应用�
         find_cursor.assert_called_once_with(map_overview)  # 确认舰船光标只在十九号截图框定的主地图范围内查找。
         for feature_name in ("Area-A", "Area-B", "Area-C", "Area-D"):  # 逐一检查四个区域的颜色识别范围。
             find_area.assert_any_call(feature_name, map_overview)  # 确认每个区域都限制在主地图范围内并返回颜色。
-        click.assert_called_once_with(area_d, after_sleep=3)  # 确认任务点击最近区域后等待三秒再关闭地图。
+        self.assertEqual([call(295, 295, name="opposite-map-side", after_sleep=3), call(area_d, after_sleep=3)], click.call_args_list)  # 必须先点地图对侧并等待，再点最近的非绿色占领区。
         log_info.assert_any_call(f"选择最近占领区 Area-D，颜色为 gray，分数 {area_d.confidence * 100:.2f}%，阈值 75.00%，中心 (25, 5)。")  # 确认导航日志包含目标分数、阈值和位置。
 
     def test_area_recognition_returns_highest_scoring_color(self):  # 验证单个区域会比较三种颜色并返回最高分颜色。
@@ -201,7 +202,7 @@ class TestAutoPveBattleTask(unittest.TestCase):  # 定义不共享全局应用�
         enemy_base = Box(700, 150, 20, 20, confidence=0.93, name="Enemy-Base")  # 构造更高分的敌方基地匹配。
         with patch.object(self.task, "wait_until", return_value=True), patch.object(self.task, "next_frame"), patch.object(self.task, "get_box_by_name", return_value=map_overview), patch.object(self.task, "_find_rotated_ship_cursor", return_value=cursor), patch.object(self.task, "_find_area", side_effect=lambda name, box: (area_a, "gray") if name == "Area-A" else (None, None)), patch.object(self.task, "find_one", side_effect=lambda name, **kwargs: enemy_base if name == "Enemy-Base" else None), patch.object(self.task, "click") as click, patch.object(self.task, "_close_map"), patch.object(self.task, "log_info"):  # 模拟二十二号截图这类两点图同时出现占领区误识别。
             self.task._handle_map()  # 执行一次地图航点选择。
-        click.assert_called_once_with(enemy_base, after_sleep=3)  # 确认更高分的敌方基地覆盖了较低分的占领区。
+        self.assertEqual([call(875, 295, name="opposite-map-side", after_sleep=3), call(enemy_base, after_sleep=3)], click.call_args_list)  # 先设置备用航点，再点击更高分的敌方基地。
 
     def test_map_prefers_higher_scoring_areas_over_enemy_base(self):  # 验证占领区分数更高时忽略同时命中的敌方基地。
         map_overview = Box(0, 0, 300, 300, name="Map-Overview")  # 构造主地图范围。
@@ -210,7 +211,25 @@ class TestAutoPveBattleTask(unittest.TestCase):  # 定义不共享全局应用�
         enemy_base = Box(200, 200, 20, 20, confidence=0.80, name="Enemy-Base")  # 构造较低分的敌方基地误识别。
         with patch.object(self.task, "wait_until", return_value=True), patch.object(self.task, "next_frame"), patch.object(self.task, "get_box_by_name", return_value=map_overview), patch.object(self.task, "_find_rotated_ship_cursor", return_value=cursor), patch.object(self.task, "_find_area", side_effect=lambda name, box: (area_d, "gray") if name == "Area-D" else (None, None)), patch.object(self.task, "find_one", side_effect=lambda name, **kwargs: enemy_base if name == "Enemy-Base" else None), patch.object(self.task, "click") as click, patch.object(self.task, "_close_map"), patch.object(self.task, "log_info"):  # 模拟四点图同时出现敌方基地误识别。
             self.task._handle_map()  # 执行一次地图航点选择。
-        click.assert_called_once_with(area_d, after_sleep=3)  # 确认更高分的占领区覆盖了较低分的敌方基地。
+        self.assertEqual([call(295, 295, name="opposite-map-side", after_sleep=3), call(area_d, after_sleep=3)], click.call_args_list)  # 先设置备用航点，再点击更高分的占领区。
+
+    def test_map_keeps_opposite_route_when_area_click_is_rejected(self):  # 模拟陆地占领点不接受航点时保留先前的对侧航路。
+        map_overview = Box(100, 100, 800, 600, name="Map-Overview")  # 使用非零地图起点验证对侧坐标计算。
+        cursor = Box(195, 195, 10, 10, name="My-Ship-Cursor")  # 本舰中心为二百乘二百，对侧应为八百乘六百。
+        for letter in "ABCD":  # 四种占领区都需要先设置备用航点。
+            with self.subTest(area=letter):  # 标出出现回归的占领区字母。
+                area = Box(300, 300, 10, 10, confidence=0.95, name=f"Area-{letter}")  # 模拟被识别出来但实际位于陆地的目标。
+                route = []  # 保存模拟游戏当前接受的航路。
+                events = MagicMock()  # 记录两次点击与关闭地图的先后顺序。
+                def accept_water_only(*args, **kwargs):  # 模拟游戏仅接受对侧水面位置，忽略陆地点选。
+                    if kwargs.get("name") == "opposite-map-side":  # 第一跳模拟为可通航水面。
+                        route[:] = args  # 设置航路，后续陆地点击不清除它。
+                with patch.object(self.task, "wait_until", return_value=True), patch.object(self.task, "next_frame"), patch.object(self.task, "get_box_by_name", return_value=map_overview), patch.object(self.task, "_find_rotated_ship_cursor", return_value=cursor), patch.object(self.task, "_find_area", side_effect=lambda name, box: (area, "gray") if name == area.name else (None, None)), patch.object(self.task, "find_one", return_value=None), patch.object(self.task, "click", side_effect=accept_water_only) as click, patch.object(self.task, "_close_map") as close, patch.object(self.task, "log_info"):  # 仅运行真实导航决策，不向游戏发送输入。
+                    events.attach_mock(click, "click")  # 捕获点击顺序及等待参数。
+                    events.attach_mock(close, "close")  # 确认两次点选完成后才关图。
+                    self.assertTrue(self.task._handle_map())  # 导航流程仍应正常完成。
+                self.assertEqual([800, 600], route)  # 陆地目标无效时仍保留对侧航路。
+                self.assertEqual([call.click(800, 600, name="opposite-map-side", after_sleep=3), call.click(area, after_sleep=3), call.close()], events.mock_calls)  # 严格验证先对侧、再目标、最后关图且两次点击后均等待。
 
     @unittest.skipUnless(all(os.path.isfile(os.path.join("ok_templates", "21x9", f"{name}.png")) for name in (14, 17, 19)), "Rotated cursor reference screenshots are not available.")  # 仅在三张地图参考截图齐全时运行旋转匹配验证。
     def test_rotated_ship_cursor_matches_reference_maps(self):  # 验证不同朝向的舰船光标都能通过旋转模板识别。
@@ -277,31 +296,80 @@ class TestAutoPveBattleTask(unittest.TestCase):  # 定义不共享全局应用�
         wait_click.assert_not_called()  # 确认当前帧已有确认按钮时不会再额外等待点击。
 
     def test_navigation_sends_exactly_ten_forward_keys_once(self):  # 验证单次航行初始化只发送十次前进键。
-        with patch.object(self.task, "send_key") as send_key, patch.object(self.task, "_handle_map", return_value=True):  # 隔离真实键盘输入和地图处理。
-            self.task._initialize_battle_navigation()  # 执行一次战斗航行初始化。
+        events = MagicMock()  # 记录等待、重新识别和地图操作的先后顺序。
+        with patch.object(self.task, "sleep") as sleep, patch.object(self.task, "_detect_scene", return_value="battle") as detect, patch.object(self.task, "log_info"), patch.object(self.task, "send_key") as send_key, patch.object(self.task, "_handle_map", return_value=True) as navigate:  # 隔离真实等待、截图和输入。
+            for name, mock in (("sleep", sleep), ("detect", detect), ("key", send_key), ("navigate", navigate)):  # 将各个操作接到同一个有序记录器。
+                events.attach_mock(mock, name)  # 后续断言可检查是否在二十五秒前误开地图。
+            self.assertTrue(self.task._initialize_battle_navigation())  # 执行一次战斗航行初始化。
         forward_calls = [call for call in send_key.call_args_list if call.args == ("w",)]  # 筛选所有发送 W 键的调用。
         self.assertEqual(10, len(forward_calls))  # 确认前进键严格发送十次。
         send_key.assert_any_call("m", after_sleep=2)  # 确认十次前进后仍会发送 M 键打开地图。
+        self.assertEqual([call.sleep(25), call.detect()] + [call.key("w", after_sleep=0.05)] * 10 + [call.key("m", after_sleep=2), call.navigate()], events.mock_calls)  # 必须先等二十五秒并确认画面，再前进、开图和导航。
+
+    def test_navigation_wait_does_not_send_input_after_scene_changes(self):
+        for scene in ("unknown", "leave_battle", "result", "menu", "map"):
+            with self.subTest(scene=scene), patch.object(self.task, "sleep") as sleep, patch.object(self.task, "_detect_scene", return_value=scene), patch.object(self.task, "log_info"), patch.object(self.task, "send_key") as keys, patch.object(self.task, "_handle_map") as navigate:
+                self.assertFalse(self.task._initialize_battle_navigation())
+            sleep.assert_called_once_with(25)
+            keys.assert_not_called()
+            navigate.assert_not_called()
+
+    def test_initial_map_returns_to_battle_before_delayed_navigation(self):
+        events = MagicMock()
+        with patch.object(self.task, "_detect_scene", side_effect=("map", "battle", "battle", "result")), patch.object(self.task, "_close_map", return_value=True) as close, patch.object(self.task, "sleep") as sleep, patch.object(self.task, "log_info"), patch.object(self.task, "send_key") as keys, patch.object(self.task, "_handle_map", return_value=True) as navigate:
+            for name, mock in (("close", close), ("sleep", sleep), ("key", keys), ("navigate", navigate)):
+                events.attach_mock(mock, name)
+            self.assertTrue(self.task._run_until_result())
+        self.assertEqual([call.close(), call.sleep(25)] + [call.key("w", after_sleep=0.05)] * 10 + [call.key("m", after_sleep=2), call.navigate()], events.mock_calls)
+
+    def test_rejoined_battle_waits_twenty_five_seconds_again(self):
+        with patch.object(self.task, "_detect_scene", side_effect=("battle", "battle", "leave_battle", "battle", "battle", "result")), patch.object(self.task, "_handle_leave_battle", return_value="left"), patch.object(self.task, "sleep") as sleep, patch.object(self.task, "log_info"), patch.object(self.task, "send_key"), patch.object(self.task, "_handle_map", return_value=True) as navigate:
+            self.assertTrue(self.task._run_until_result())
+        self.assertEqual([call(25), call(25)], sleep.call_args_list)
+        self.assertEqual(2, navigate.call_count)
 
     def test_battle_actions_rotate_left_click_r_t_and_f(self):  # 验证战斗输入严格按鼠标左键、R、T、F 循环发送。
         action_index = 0  # 从循环中的鼠标左键位置开始。
-        with patch.object(self.task, "click_relative") as click_relative, patch.object(self.task, "send_key") as send_key:  # 隔离真实鼠标和键盘输入。
+        with patch.object(self.task, "move_relative") as move, patch("src.tasks.AutoPveBattleTask.random.uniform", side_effect=[0.4, 0.5] * 5), patch.object(self.task, "click_relative") as click_relative, patch.object(self.task, "send_key") as send_key:  # 隔离真实鼠标和键盘输入。
             for _ in range(5):  # 连续执行五次以覆盖一轮以及下一轮的首项。
                 action_index = self.task._send_battle_action(action_index)  # 发送当前动作并保存下一循环位置。
+        self.assertEqual([call(0.4, 0.5)] * 5, move.call_args_list)
         self.assertEqual(1, action_index)  # 第五次左键后下一项应再次轮到 R。
         self.assertEqual([call(0.5, 0.5, move=False, name="battle_fire"), call(0.5, 0.5, move=False, name="battle_fire")], click_relative.call_args_list)  # 确认第一和第五次输入都是屏幕中心左键。
         self.assertEqual([call("r"), call("t"), call("f")], send_key.call_args_list)  # 确认三个键盘输入按 R、T、F 的顺序各发送一次。
 
     def test_battle_action_loop_waits_one_second_between_inputs(self):  # 验证战斗状态机在每项轮换输入后固定等待一秒。
         scenes = iter(("battle", "battle", "battle", "battle", "battle", "result"))  # 模拟初始化后连续四个战斗输入周期并进入结算页。
-        with patch.object(self.task, "_detect_scene", side_effect=lambda: next(scenes)), patch.object(self.task, "_initialize_battle_navigation"), patch.object(self.task, "_send_battle_action", side_effect=(1, 2, 3, 0)) as send_action, patch.object(self.task, "sleep") as sleep:  # 隔离导航、输入和真实等待。
+        with patch.object(self.task, "_detect_scene", side_effect=lambda: next(scenes)), patch.object(self.task, "_initialize_battle_navigation"), patch.object(self.task, "_send_battle_action", side_effect=(1, 2, 3, 0)) as send_action, patch("src.tasks.AutoPveBattleTask.time.monotonic", return_value=0), patch.object(self.task, "sleep") as sleep:  # 隔离导航、输入和真实等待。
             self.assertTrue(self.task._run_until_result())  # 运行状态机直到模拟的结算页。
         self.assertEqual([call(0), call(1), call(2), call(3)], send_action.call_args_list)  # 确认状态机依次推进左键、R、T、F 四个输入位置。
         self.assertEqual([call(1), call(1), call(1), call(1)], sleep.call_args_list)  # 确认每个输入周期后都固定等待一秒。
 
+    def test_battle_cycle_includes_recognition_time_and_never_catches_up(self):
+        for recognition_seconds, expected_sleep in ((0.8, 0.2), (1.4, 0)):
+            with self.subTest(recognition_seconds=recognition_seconds):
+                clock = [0]
+                scenes = iter(("battle", "battle", "result"))
+
+                def detect():
+                    clock[0] += recognition_seconds
+                    return next(scenes)
+
+                with patch("src.tasks.AutoPveBattleTask.time.monotonic", side_effect=lambda: clock[0]), patch.object(self.task, "_detect_scene", side_effect=detect), patch.object(self.task, "_initialize_battle_navigation", return_value=True), patch.object(self.task, "_send_battle_action", return_value=1) as action, patch.object(self.task, "sleep") as sleep:
+                    self.assertTrue(self.task._run_until_result())
+                action.assert_called_once_with(0)
+                self.assertEqual(1, sleep.call_count)
+                self.assertAlmostEqual(expected_sleep, sleep.call_args.args[0])
+
+    def test_random_mouse_movement_only_runs_on_confirmed_battle_frame(self):
+        with patch.object(self.task, "_detect_scene", side_effect=("battle", "battle", "unknown", "map", "queue", "result")), patch.object(self.task, "_initialize_battle_navigation", return_value=True), patch.object(self.task, "_close_map", return_value=True), patch.object(self.task, "sleep"), patch.object(self.task, "click_relative"), patch.object(self.task, "move_relative") as move, patch("src.tasks.AutoPveBattleTask.random.uniform", side_effect=(0.4, 0.5)) as uniform:
+            self.assertTrue(self.task._run_until_result())
+        self.assertEqual([call(0.35, 0.65), call(0.35, 0.60)], uniform.call_args_list)
+        move.assert_called_once_with(0.4, 0.5)
+
     def test_start_button_does_not_initialize_without_battle_markers(self):  # 验证点击开始后的未知画面不会靠计时初始化战斗。
         scenes = iter(("battle_start", "unknown", "result"))  # 模拟点击开始后 HUD 一直无法模板识别再进入结算的状态序列。
-        with patch.object(self.task, "_detect_scene", side_effect=lambda: next(scenes)), patch.object(self.task, "wait_click_feature", return_value=True), patch.object(self.task, "sleep"), patch.object(self.task, "_initialize_battle_navigation") as initialize, patch("src.tasks.AutoPveBattleTask.time.monotonic", side_effect=(0, 31)):  # 隔离等待和真实输入。
+        with patch.object(self.task, "_detect_scene", side_effect=lambda: next(scenes)), patch.object(self.task, "wait_click_feature", return_value=True), patch.object(self.task, "sleep"), patch.object(self.task, "_initialize_battle_navigation") as initialize, patch("src.tasks.AutoPveBattleTask.time.monotonic", return_value=0):  # 隔离等待和真实输入。
             self.assertTrue(self.task._run_until_result())  # 确认状态机最终能够继续运行到结算页。
         initialize.assert_not_called()  # 未检测到战斗标志时不能初始化。
 
@@ -344,7 +412,9 @@ class TestAutoPveBattleTask(unittest.TestCase):  # 定义不共享全局应用�
         self.task.config["Battle Count"] = 2  # 将本次测试目标设置为两场战斗。
         run_until_result = MagicMock(return_value=True)  # 模拟每一场战斗都成功到达结算页。
         with patch.object(self.task, "ensure_in_front"), patch.object(self.task, "_return_to_main", return_value=True), patch.object(self.task, "_prepare_and_join_first_battle", return_value=True), patch.object(self.task, "_run_until_result", run_until_result), patch.object(self.task, "wait_click_feature", return_value=True) as wait_click, patch.object(self.task, "log_info"), patch.object(self.task, "log_error"):  # 隔离真实游戏输入和日志状态并运行计数逻辑。
-            self.task.run()  # 执行设置为两场的任务主流程。
+            with patch.object(self.task, "_collect_containers", return_value=True) as collect:  # 隔离收尾领取，继续验证多场战斗计数。
+                self.task.run()  # 执行设置为两场的任务主流程。
+            collect.assert_called_once_with()  # 仅在全部战斗结束后领取一次。
         self.assertEqual([call(True), call(False)], run_until_result.call_args_list)  # 确认第二场已经把场次将满的信息传给战斗循环。
         self.assertEqual([  # 确认第一场继续战斗而最后一场明确返回港口。
             call("Continue-Battle", threshold=0.8, time_out=30, raise_if_not_found=False, after_sleep=2),  # 第一场结束后进入下一次排队。
@@ -355,7 +425,9 @@ class TestAutoPveBattleTask(unittest.TestCase):  # 定义不共享全局应用�
     def test_run_closes_game_after_success_when_enabled(self):  # 验证用户开启开关后仅在达到目标场数时关闭游戏。
         self.task.config["Close Game After Completion"] = True  # 模拟用户在任务配置中开启完成后关闭游戏。
         with patch.object(self.task, "ensure_in_front"), patch.object(self.task, "_return_to_main", return_value=True), patch.object(self.task, "_prepare_and_join_first_battle", return_value=True), patch.object(self.task, "_run_until_result", return_value="left"), patch.object(self.task, "wait_click_feature") as wait_click, patch.object(self.task, "log_info"), patch.object(self.task, "log_error"):  # 模拟最后一场击沉后已经确认离开并隔离真实输入。
-            self.task.run()  # 执行一场完整成功流程。
+            with patch.object(self.task, "_collect_containers", return_value=True) as collect:  # 模拟回港后的集装箱已经领完。
+                self.task.run()  # 执行一场完整成功流程。
+            collect.assert_called_once_with()  # 最后一场击沉离开也必须领取集装箱。
         wait_click.assert_not_called()  # 已经从击沉后续页返回港口时不再点击结算按钮。
         self.executor.device_manager.stop_hwnd.assert_called_once_with()  # 确认只通过框架关闭当前绑定的游戏一次。
 
@@ -369,7 +441,9 @@ class TestAutoPveBattleTask(unittest.TestCase):  # 定义不共享全局应用�
         self.task.config["Battle Count"] = 2  # 将本次测试目标设置为两场战斗。
         outcomes = iter(("continued", "left"))  # 模拟第一场击沉后续战、第二场确认离开返回港口。
         with patch.object(self.task, "ensure_in_front"), patch.object(self.task, "_return_to_main", return_value=True), patch.object(self.task, "_prepare_and_join_first_battle", return_value=True), patch.object(self.task, "_run_until_result", side_effect=lambda can_continue=True: next(outcomes)), patch.object(self.task, "wait_click_feature") as wait_click, patch.object(self.task, "log_info"), patch.object(self.task, "log_error"):  # 隔离真实游戏输入并运行击沉后的计数逻辑。
-            self.task.run()  # 执行设置为两场且都走击沉后续页面的任务主流程。
+            with patch.object(self.task, "_collect_containers", return_value=True) as collect:  # 隔离两场结束后的领取输入。
+                self.task.run()  # 执行设置为两场且都走击沉后续页面的任务主流程。
+            collect.assert_called_once_with()  # 第一场续战不触发领取，最后一场离开后才领取。
         wait_click.assert_not_called()  # 确认已经点击过继续或确认离开后不会再点结算页按钮。
 
     def test_find_leave_followup_uses_after_sunk_continue_button(self):  # 验证击沉后续页使用专用继续战斗模板而不是结算页按钮。
@@ -379,11 +453,16 @@ class TestAutoPveBattleTask(unittest.TestCase):  # 定义不共享全局应用�
             self.assertEqual((after_sunk, confirm), self.task._find_leave_followup())  # 确认后续页查找结果包含专用继续按钮。
         self.assertEqual("Continue-Battle-After-Sunk", find_one.call_args_list[0].args[0])  # 确认优先搜索击沉后续页专用按钮。
 
-    def test_find_one_uses_full_screen_search_for_after_sunk_button(self):  # 验证击沉后续继续按钮与结算继续按钮一样使用全图搜索。
-        with patch.object(MyBaseTask, "find_one", return_value=None) as super_find:  # 拦截基类查找以检查覆盖后的搜索范围。
-            self.task.find_one("Continue-Battle-After-Sunk", threshold=0.8)  # 按任务接口查找击沉后续继续按钮。
-        self.assertEqual(1, super_find.call_args.kwargs["horizontal_variance"])  # 确认水平方向覆盖整屏。
-        self.assertEqual(1, super_find.call_args.kwargs["vertical_variance"])  # 确认垂直方向覆盖整屏。
+    def test_find_one_uses_fourfold_local_search_for_continue_buttons(self):  # 验证两个继续按钮均围绕标注中心搜索且保留显式范围。
+        feature = Box(300, 200, 100, 40)  # 构造标注中心位于三百五十、二百二十的按钮。
+        for feature_name in ("Continue-Battle", "Continue-Battle-After-Sunk"):  # 同时覆盖结算页与击沉后续页。
+            with self.subTest(feature_name=feature_name), patch.object(self.task, "get_feature_by_name", return_value=feature), patch.object(MyBaseTask, "find_one", return_value=None) as super_find:  # 隔离模板读取和底层匹配。
+                self.task.find_one(feature_name, threshold=0.8)  # 使用默认搜索范围查找。
+                search_box = super_find.call_args.kwargs["box"]  # 读取交给匹配器的实际区域。
+                self.assertEqual((150, 140, 400, 160), (search_box.x, search_box.y, search_box.width, search_box.height))  # 宽高各四倍且中心不变。
+                explicit_box = Box(10, 20, 200, 80)  # 模拟调用方指定更小的搜索范围。
+                self.task.find_one(feature_name, threshold=0.8, box=explicit_box)  # 指定范围后再次查找。
+                self.assertIs(explicit_box, super_find.call_args.kwargs["box"])  # 显式区域不能被默认四倍区域覆盖。
 
     def test_resolution_packs_pick_coco_by_window_ratio(self):  # 验证 21:9、16:10、16:9 窗口会选中对应的子目录。
         self.assertEqual(os.path.join("assets", "21x9", "coco_annotations.json"), coco_json_for_size(5120, 2160))  # 超宽屏使用 21:9 标注。

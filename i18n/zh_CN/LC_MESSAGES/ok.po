@@ -395,3 +395,11 @@ msgstr "可执行程序 (*.exe)"
 #: src/launch_config.py
 msgid "Game executable or shortcut (*.exe *.lnk *.url)"
 msgstr "游戏程序或快捷方式 (*.exe *.lnk *.url)"
+
+#: src/tasks/AutoPveBattleTask.py
+msgid "Capture Battle Dataset"
+msgstr "采集战斗截图"
+
+#: src/tasks/AutoPveBattleTask.py
+msgid "Save battle and tactical-map screenshots every minute during battle."
+msgstr "战斗期间每分钟保存一张战斗界面和一张大地图截图。"

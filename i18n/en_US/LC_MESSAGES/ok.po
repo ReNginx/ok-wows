@@ -403,3 +403,11 @@ msgstr "Executables (*.exe)"
 #: src/launch_config.py
 msgid "Game executable or shortcut (*.exe *.lnk *.url)"
 msgstr "Game executable or shortcut (*.exe *.lnk *.url)"
+
+#: src/tasks/AutoPveBattleTask.py
+msgid "Capture Battle Dataset"
+msgstr "Capture Battle Dataset"
+
+#: src/tasks/AutoPveBattleTask.py
+msgid "Save battle and tactical-map screenshots every minute during battle."
+msgstr "Save battle and tactical-map screenshots every minute during battle."

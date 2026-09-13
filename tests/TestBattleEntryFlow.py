@@ -1,6 +1,7 @@
 import json
 from pathlib import Path
 import unittest
+from tempfile import TemporaryDirectory
 from unittest.mock import MagicMock, call, patch
 
 import cv2
@@ -112,6 +113,36 @@ class TestBattleEntryFlow(unittest.TestCase):
         self.assertIsNotNone(match)
         self.assertEqual((4000, 1500), (match.x, match.y))
 
+    @unittest.skipUnless(Path("ok_templates/21x9/28.png").is_file(), "Non-Libertad reference screenshot unavailable")
+    def test_first_ship_matches_non_libertad_port_screenshot_with_expanded_multiscale_search(self):
+        frame = cv2.imread("ok_templates/21x9/28.png")
+        self.bind_frame(frame)
+        match = self.task.find_one("Pick-First-Ship", threshold=self.task.threshold)
+        self.assertIsNotNone(match)
+        self.assertGreaterEqual(match.confidence, self.task.threshold)
+
+    def test_ship_icon_score_ignores_background_and_rejects_gray_silhouette(self):
+        scores = []
+        for background in ((0, 0, 0), (255, 255, 255), (180, 90, 40)):
+            with self.subTest(background=background):
+                frame = np.full((2160, 5120, 3), background, dtype=np.uint8)
+                self.bind_frame(frame)
+                template = self.task.get_feature_by_name("Ship-Icon").mat
+                mask = self.task._ship_icon_yellow_mask(template) > 0
+                height, width = template.shape[:2]
+                patch_image = frame[353:353 + height, 175:175 + width]
+                patch_image[mask] = template[mask]
+                match = self.task.find_one("Ship-Icon", threshold=self.task.map_threshold)
+                self.assertIsNotNone(match)
+                self.assertEqual((175, 353), (match.x, match.y))
+                scores.append(match.confidence)
+        self.assertLess(max(scores) - min(scores), 0.001)
+        self.assertGreater(min(scores), 0.99)
+        gray = cv2.cvtColor(cv2.cvtColor(template, cv2.COLOR_BGR2GRAY), cv2.COLOR_GRAY2BGR)
+        frame[:] = 30
+        frame[353:353 + height, 175:175 + width] = gray
+        self.assertIsNone(self.task.find_one("Ship-Icon", threshold=self.task.map_threshold))
+
     @unittest.skipUnless(Path("ok_templates/21x9/14.png").is_file(), "Local reference screenshots unavailable")
     def test_battle_views_with_left_panel_ship_icon_matching(self):
         for size in ((5120, 2160), (2560, 1080)):
@@ -192,6 +223,70 @@ class TestBattleEntryFlow(unittest.TestCase):
                 self.assertEqual(0 if ready_at is None else 1, prepare.call_count)
                 if ready_at is None:
                     error.assert_any_call("等待游戏主界面超时（300 秒），任务停止。")
+
+    def test_reward_retries_visible_button_but_never_clicks_loading_screen(self):
+        for ready_at, expected_retries, expected_result in ((8, 1, True), (None, 2, False)):
+            with self.subTest(ready_at=ready_at):
+                elapsed = [0.0]
+                retries = []
+                observations = []
+
+                def scene(refresh=False):
+                    observations.append(elapsed[0])
+                    if ready_at is not None and elapsed[0] >= ready_at:
+                        return "reward_screen"
+                    return "unknown" if 4 <= elapsed[0] < 7 else "claim_reward"
+
+                def poll(predicate, time_out, post_action, **kwargs):
+                    while elapsed[0] < time_out:
+                        if predicate():
+                            return True
+                        post_action()
+                    return None
+
+                with patch("src.tasks.AutoPveBattleTask.time.monotonic", side_effect=lambda: elapsed[0]), \
+                        patch.object(self.task, "wait_click_feature", return_value=True), \
+                        patch.object(self.task, "_detect_scene", side_effect=scene), \
+                        patch.object(self.task, "find_one", return_value=Box(100, 200, 30, 40, name="Claim-Reward")), \
+                        patch.object(self.task, "click", side_effect=lambda *args, **kwargs: retries.append(elapsed[0])), \
+                        patch.object(self.task, "sleep", side_effect=lambda seconds: elapsed.__setitem__(0, elapsed[0] + seconds)), \
+                        patch.object(self.task, "wait_until", side_effect=poll), \
+                        patch.object(self.task, "_save_failure_screenshot") as save:
+                    self.assertEqual(expected_result, self.task._handle_screen_button("claim_reward", deadline=300))
+                self.assertEqual([7.0, 12.0][:expected_retries], retries)
+                self.assertEqual(8.0 if expected_result else 17.0, elapsed[0])
+                self.assertGreater(len(observations), 10)
+                self.assertEqual(0 if expected_result else 1, save.call_count)
+
+    def test_reward_retry_cannot_click_after_recognition_exceeds_deadline(self):
+        elapsed = [0.0]
+
+        def detect(refresh=False):
+            elapsed[0] = 301
+            return "claim_reward"
+
+        with patch("src.tasks.AutoPveBattleTask.time.monotonic", side_effect=lambda: elapsed[0]), \
+                patch.object(self.task, "wait_click_feature", return_value=True), \
+                patch.object(self.task, "_detect_scene", side_effect=detect), \
+                patch.object(self.task, "wait_until", side_effect=lambda predicate, **kwargs: predicate()), \
+                patch.object(self.task, "click") as click, \
+                patch.object(self.task, "_save_failure_screenshot") as save:
+            self.assertFalse(self.task._handle_screen_button("claim_reward", deadline=300))
+        click.assert_not_called()
+        save.assert_called_once_with("Claim-Reward")
+
+    def test_failure_screenshots_are_unique_and_preserve_pixels(self):
+        frame = np.full((12, 24, 3), (20, 40, 60), dtype=np.uint8)
+        self.executor.frame = frame
+        with TemporaryDirectory() as directory, \
+                patch.object(self.task, "FAILURE_DIRECTORY", Path(directory)):
+            self.task._save_failure_screenshot("Claim-Reward")
+            self.task._save_failure_screenshot("Claim-Reward")
+            paths = list(Path(directory).glob("*/*_Claim-Reward_*.png"))
+            self.assertEqual(2, len(paths))
+            for path in paths:
+                restored = cv2.imdecode(np.frombuffer(path.read_bytes(), dtype=np.uint8), cv2.IMREAD_COLOR)
+                np.testing.assert_array_equal(frame, restored)
 
     def test_startup_login_and_rewards_share_the_same_deadline(self):
         elapsed = [0]
