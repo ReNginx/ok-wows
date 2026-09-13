@@ -5,6 +5,9 @@ from ok import ConfigOption
 from src.launch_config import launch_options
 
 import src.resolution_assets  # 按游戏窗口比例切换 21:9、16:10、16:9 三套模板。
+from src.task_failure_capture import install_failure_capture  # 覆盖所有任务的异常与报错返回出口。
+
+install_failure_capture()  # 在任务创建和执行前安装持久错误截图钩子。
 
 version = "dev"
 #不需要修改version, Github Action打包会自动修改

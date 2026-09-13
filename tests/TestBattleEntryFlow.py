@@ -281,6 +281,7 @@ class TestBattleEntryFlow(unittest.TestCase):
     def test_failure_screenshots_are_unique_and_preserve_pixels(self):
         frame = np.full((12, 24, 3), (20, 40, 60), dtype=np.uint8)
         self.executor.frame = frame
+        self.executor.nullable_frame.return_value = frame
         with TemporaryDirectory() as directory, \
                 patch.object(self.task, "FAILURE_DIRECTORY", Path(directory)):
             self.task._save_failure_screenshot("Claim-Reward")

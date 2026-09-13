@@ -12,6 +12,7 @@ from qfluentwidgets import FluentIcon  # 导入任务列表中使用的内置图
 
 from src.tasks.MyBaseTask import MyBaseTask  # 导入项目本地任务基类。
 from src.tasks.feature_ocr import DEFAULT_SHIP_NAME, OCR_TEXTS, find_ocr_feature, normalized  # 共用文字识别及用户指定舰名。
+from src.task_failure_capture import save_failure_screenshot  # 专用按钮和统一退出钩子共用持久截图保存逻辑。
 
 
 class AutoPveBattleTask(MyBaseTask):  # 定义自动完成 PVE 战斗的一次性任务。
@@ -300,22 +301,7 @@ class AutoPveBattleTask(MyBaseTask):  # 定义自动完成 PVE 战斗的一次�
         return bool(changed) and not exhausted  # 只有切换到下一个已识别页面才允许继续流程。
 
     def _save_failure_screenshot(self, feature):  # 按日期持久保存最后识别到的失败画面。
-        frame = self.frame  # 保留失败判断使用的画面，不在结束时重新采集其他页面。
-        if not isinstance(frame, np.ndarray) or frame.size == 0:  # 捕获不可用时只报告原因。
-            self.log_warning("失败截图未保存：没有可用的游戏画面。")  # 避免截图异常掩盖原始失败。
-            return  # 无画面时跳过写盘。
-        timestamp = datetime.now()  # 文件夹和文件使用同一个本地时间。
-        path = self.FAILURE_DIRECTORY / timestamp.strftime("%Y-%m-%d") / f"{timestamp:%H-%M-%S-%f}_{feature}_{uuid4().hex[:8]}.png"  # 唯一命名避免覆盖同日其他失败。
-        try:  # 截图写入失败时继续正常报告任务失败。
-            path.parent.mkdir(parents=True, exist_ok=True)  # 按需创建日期目录。
-            encoded, data = cv2.imencode(".png", frame)  # 使用无损格式保留按钮和文字细节。
-            if not encoded:  # 编码失败时统一走错误日志。
-                raise ValueError("PNG 编码失败")  # 不写入不完整图片。
-            path.write_bytes(data.tobytes())  # 支持包含中文的 Windows 路径。
-        except (OSError, ValueError, cv2.error) as error:  # 只处理截图保存问题，不吞掉用户停止任务的异常。
-            self.log_warning(f"失败截图保存失败：{error}")  # 原始任务失败仍由调用方处理。
-            return  # 保存失败时不输出成功路径。
-        self.log_info(f"失败截图已保存：{path}")  # 给出可直接定位的完整路径。
+        return save_failure_screenshot(self, feature, frame=self.executor.nullable_frame(), directory=self.FAILURE_DIRECTORY, label=feature)  # 使用已确认的错误帧，避免暂停后读取 frame 导致等待。
 
     def _run_until_result(self, can_continue=True):  # 从排队开始持续处理状态直到本场战斗结束。
         battle_initialized = False  # 标记当前战斗是否已经完成前进和地图导航初始化。
