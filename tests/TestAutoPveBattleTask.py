@@ -59,29 +59,33 @@ class TestAutoPveBattleTask(unittest.TestCase):  # 定义不共享全局应用�
         with patch.object(self.task, "next_frame"), patch.object(self.task, "find_one", side_effect=lambda name, **kwargs: boxes.get(name)):  # 使用同一张模拟截图执行场景识别。
             self.assertEqual("leave_battle", self.task._detect_scene())  # 离开入口出现时必须进入离开处理分支。
 
-    def test_only_ship_icon_distinguishes_battle_and_map_after_nameplate(self):  # 验证旧教程和罗盘不会影响独立图标的判断。
-        for icon_visible in (False, True):  # 覆盖独立图标存在和消失两种情况。
-            for legacy_visible in (False, True):  # 覆盖教程和罗盘存在与缺失的情况。
-                with self.subTest(icon=icon_visible, legacy=legacy_visible):  # 标明当前组合以便定位失败。
-                    visible = {"Libertad-Nameplate"}  # 铭牌确认已经进入战斗。
-                    if icon_visible:  # 当前用例需要显示独立图标。
-                        visible.add("Ship-Icon")  # 添加唯一视图判断元素。
-                    if legacy_visible:  # 当前用例保留旧判断元素。
-                        visible.update(("Map-Tutorial", "In-Battle-Compass"))  # 旧元素不应参与决策。
-                    with patch.object(self.task, "find_one", side_effect=lambda name, **kwargs: object() if name in visible else None):  # 提供同一帧特征集合。
-                        self.assertEqual("battle" if icon_visible else "map", self.task._detect_scene(refresh=False))  # 验证视图只由图标决定。
-                        self.assertEqual(icon_visible, self.task._map_is_closed())  # 关闭地图必须确认图标恢复。
+    def test_map_requires_both_buttons_and_ignores_ship_icon(self):  # 覆盖两个地图按钮的全部组合，舰船图标不参与视图判断。
+        for m_visible in (False, True):  # 覆盖 M 按钮存在和缺失。
+            for b_visible in (False, True):  # 覆盖 B 按钮存在和缺失。
+                for icon_visible in (False, True):  # 图标存在与否不应改变结果。
+                    with self.subTest(m=m_visible, b=b_visible, icon=icon_visible):  # 标明失败组合。
+                        visible = {"Libertad-Nameplate", "Map-Tutorial", "In-Battle-Compass"}  # 铭牌确认战斗，旧元素不参与决策。
+                        visible.update(name for name, present in (("Map-M-Button", m_visible), ("Map-B-Button", b_visible), ("Ship-Icon", icon_visible)) if present)  # 设置当前帧按钮组合。
+                        with patch.object(self.task, "find_one", side_effect=lambda name, **kwargs: object() if name in visible else None) as find_one, patch.object(self.task, "get_feature_by_name", side_effect=lambda name: None if name == "Ship-Icon" else object()) as get_feature:  # 即使缺少舰船图标模板也能正确识别。
+                            is_map = m_visible and b_visible  # 两个按钮缺一不可。
+                            self.assertEqual("map" if is_map else "battle", self.task._detect_scene(refresh=False))  # 验证场景判断。
+                            self.assertEqual(is_map, self.task._map_is_visible())  # 验证打开地图的确认。
+                            self.assertEqual(not is_map, self.task._map_is_closed())  # 验证关闭地图的确认。
+                            self.assertNotIn("Ship-Icon", [c.args[0] for c in find_one.call_args_list + get_feature.call_args_list])  # 确认不再读取或匹配舰船图标。
 
-    def test_without_nameplate_does_not_enter_battle_or_close_map(self):  # 验证缺少进入战斗标志时不误操作未知画面。
-        for visible in (set(), {"Ship-Icon"}, {"Map-Tutorial", "In-Battle-Compass"}):  # 覆盖空白加载页以及其他元素误命中。
+    def test_without_nameplate_does_not_enter_battle_or_close_map(self):  # 缺少铭牌时不将未知页面当成战斗。
+        for visible in (set(), {"Ship-Icon"}, {"Map-M-Button", "Map-B-Button"}):  # 包括两个按钮误命中的情况。
             with self.subTest(visible=visible), patch.object(self.task, "find_one", side_effect=lambda name, **kwargs: object() if name in visible else None):  # 控制可见元素。
-                self.assertEqual("unknown", self.task._detect_scene(refresh=False))  # 不能用其他元素绕过铭牌。
-                self.assertFalse(self.task._map_is_visible())  # 非战斗画面不属于大地图。
-                self.assertFalse(self.task._map_is_closed())  # 未知画面也不能确认已回到战斗界面。
+                self.assertEqual("unknown", self.task._detect_scene(refresh=False))  # 不能绕过铭牌。
+                self.assertFalse(self.task._map_is_visible())  # 非战斗页面不属于大地图。
+                self.assertFalse(self.task._map_is_closed())  # 未知页面不代表关闭成功。
 
-    def test_missing_ship_icon_template_does_not_mean_map(self):  # 验证旧比例缺少资源时不把缺失模板当成图标消失。
-        with patch.object(self.task, "find_one", return_value=object()), patch.object(self.task, "get_feature_by_name", return_value=None):  # 模拟仅有铭牌而没有图标资源。
-            self.assertIsNone(self.task._detect_battle_view())  # 缺少必要模板时不推断视图。
+    def test_missing_map_button_template_does_not_infer_battle_view(self):  # 任一按钮资源缺失时不能把缺模板当成按钮消失。
+        for missing in self.task.MAP_VIEW_FEATURES:  # 分别覆盖两个模板缺失。
+            with self.subTest(missing=missing), patch.object(self.task, "find_one", return_value=object()), patch.object(self.task, "get_feature_by_name", side_effect=lambda name: None if name == missing else object()):  # 模拟资源不完整。
+                self.assertIsNone(self.task._detect_battle_view())  # 保持未知状态。
+                self.assertFalse(self.task._map_is_visible())  # 不误判大地图。
+                self.assertFalse(self.task._map_is_closed())  # 不误判关闭成功。
 
     @unittest.skipUnless(os.path.isdir(os.path.join("ok_templates", "21x9")), "Local reference screenshots are not available.")  # 仅在本地原始模板目录存在时运行截图集成验证。
     def test_annotated_reference_screens_have_expected_scenes(self):  # 用完整标注截图验证全部页面都能被状态机识别。
@@ -99,9 +103,9 @@ class TestAutoPveBattleTask(unittest.TestCase):  # 定义不共享全局应用�
             "10.png": "equipment",  # 十号截图是已装备旗子状态页。
             "11.png": "menu",  # 十一号截图是菜单页面。
             "12.png": "leave_battle",  # 十二号截图是舰船被击沉后的离开战斗页面。
-            "14.png": "map",  # 十四号截图有舰船铭牌且没有独立舰船图标。
-            "15.png": "battle",  # 十五号截图有舰船铭牌和独立舰船图标。
-            "16.png": "battle",  # 十六号截图有舰船铭牌和独立舰船图标。
+            "14.png": "map",  # 十四号截图有舰船铭牌和两个地图按钮。
+            "15.png": "battle",  # 十五号截图有舰船铭牌且没有地图按钮组合。
+            "16.png": "battle",  # 十六号截图有舰船铭牌且没有地图按钮组合。
         }  # 完成截图与状态的对应关系定义。
         matching_config = config["template_matching"]  # 读取应用真实模板引擎参数。
         feature_set = FeatureSet(False, matching_config["coco_feature_json"], default_horizontal_variance=matching_config["default_horizontal_variance"], default_vertical_variance=matching_config["default_vertical_variance"], default_threshold=matching_config["default_threshold"])  # 创建不依赖 GUI 生命周期的真实模板引擎。
@@ -503,8 +507,8 @@ class TestAutoPveBattleTask(unittest.TestCase):  # 定义不共享全局应用�
         import json  # 仅在本测试中读取两份 coco 分类名。
         current_names = {category["name"] for category in json.loads(Path("assets/21x9/coco_annotations.json").read_text(encoding="utf-8"))["categories"]}  # 读取超宽屏分类名。
         wide_names = {category["name"] for category in json.loads(Path("assets/16x10/coco_annotations.json").read_text(encoding="utf-8"))["categories"]}  # 读取十六比十分类名。
-        optional_names = set(AutoPveBattleTask.OPTIONAL_FEATURES)  # 新入口和非对称模式允许逐比例补充标注。
-        self.assertIn("Ship-Icon", current_names)  # 当前超宽屏资源必须提供独立舰船图标。
+        optional_names = set(AutoPveBattleTask.OPTIONAL_FEATURES) | set(AutoPveBattleTask.MAP_VIEW_FEATURES)  # 新入口和非对称模式允许逐比例补充标注。
+        self.assertTrue(set(AutoPveBattleTask.MAP_VIEW_FEATURES) <= current_names)  # 当前超宽屏资源必须提供两个地图按钮。
         self.assertEqual(current_names - optional_names - {"Ship-Icon"}, wide_names - optional_names - {"Ship-Icon"})  # 旧比例尚未补充独立图标，其余共享元素保持一致。
         self.assertIn("Continue-Battle-After-Sunk", current_names)  # 确认击沉后续按钮使用新名字。
         self.assertNotIn("Continue-Battle-Button-After-Sunk", wide_names)  # 确认旧的击沉后续按钮名已经去掉。

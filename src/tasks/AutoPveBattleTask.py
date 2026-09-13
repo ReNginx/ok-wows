@@ -17,6 +17,8 @@ class AutoPveBattleTask(MyBaseTask):  # 定义自动完成 PVE 战斗的一次�
 
     AREA_COLOR_HSV = {"green": (78, 171), "red": (6, 255), "gray": (0, 0)}  # 定义占领区绿色、红色和灰色模板使用的 OpenCV 色相与饱和度。
     MAP_TEMPLATE_THRESHOLD = 0.75  # 为大地图元素使用略低于全局默认值的专用阈值以减少动态画面漏识别。
+    MAP_VIEW_FEATURES = ("Map-M-Button", "Map-B-Button")  # 两个地图按钮同时出现时确认大地图页面。
+    MAP_VIEW_THRESHOLD = 0.70  # 小按钮缩小一半后受像素取整影响，配合双按钮共同确认降低漏识别。
     MAP_POINT_SETTLE_SECONDS = 3  # 点击地图航点后等待标记和路线动画稳定再尝试关闭地图。
     MAP_RETURN_TIMEOUT = 8  # 按返回键后最多等待八秒确认大地图已经消失。
     NAVIGATION_START_DELAY = 25  # 入场后等待开局提示文字消失，再打开大地图导航。
@@ -497,7 +499,7 @@ class AutoPveBattleTask(MyBaseTask):  # 定义自动完成 PVE 战斗的一次�
         return self._handle_map()  # 在地图上选择航点，并将初始化结果交回场景循环。
 
     def _handle_map(self):  # 先点击地图对侧设置备用航点，再尝试占领区或敌方基地。
-        map_anchor = self.wait_until(self._map_is_visible, time_out=20, raise_if_not_found=False)  # 等待舰船铭牌存在且独立舰船图标消失。
+        map_anchor = self.wait_until(self._map_is_visible, time_out=20, raise_if_not_found=False)  # 等待舰船铭牌和两个地图按钮同时出现。
         if map_anchor is None:  # 检查 M 键是否成功打开了大地图。
             self.log_warning("没有识别到大地图锚点，跳过本次地图选点。")  # 记录地图未成功打开或仍处于加载中的情况。
             return False  # 未确认大地图时不发送 ESC 以免误开战斗菜单。
@@ -606,12 +608,12 @@ class AutoPveBattleTask(MyBaseTask):  # 定义自动完成 PVE 战斗的一次�
     def _close_map(self):  # 关闭大地图并等待确认已经回到动态战斗画面。
         self.send_key("esc", after_sleep=1)  # 在航点动画稳定后优先按工作流要求使用 ESC 返回战斗界面。
         map_closed = self.wait_until(self._map_is_closed, time_out=self.MAP_RETURN_TIMEOUT, raise_if_not_found=False)  # 持续刷新画面而不是固定两秒后只检查一次。
-        if map_closed:  # 舰船铭牌和独立图标已经确认回到战斗界面。
+        if map_closed:  # 舰船铭牌存在且地图按钮组合已消失，确认回到战斗界面。
             return True  # 报告已回到战斗界面供调用方和测试确认。
         self.log_warning("ESC 后等待八秒仍未确认战斗界面，改用 M 键关闭地图。")  # 记录延长等待后仍需执行的恢复动作。
         self.send_key("m", after_sleep=1)  # 使用地图模式切换键兜底返回战斗界面。
         map_closed = self.wait_until(self._map_is_closed, time_out=self.MAP_RETURN_TIMEOUT, raise_if_not_found=False)  # 再等待一次并验证 M 键确实关闭了地图。
-        if map_closed:  # M 键后重新检测到舰船铭牌和独立图标。
+        if map_closed:  # M 键后确认舰船铭牌仍在且地图按钮组合已消失。
             return True  # 报告兜底关闭成功。
         self.log_error("M 键后等待八秒仍未回到战斗界面。")  # 两种关闭方式都失败时留下明确诊断日志。
         return False  # 报告地图关闭失败以便后续状态循环继续恢复。
@@ -634,7 +636,7 @@ class AutoPveBattleTask(MyBaseTask):  # 定义自动完成 PVE 战斗的一次�
             return "queue"  # 返回战斗排队场景。
         if self.find_one("Start-Battle", threshold=self.threshold) is not None:  # 等待开战页使用开始按钮判断。
             return "battle_start"  # 返回等待战斗开始场景。
-        battle_view = self._detect_battle_view()  # 由铭牌确认进入战斗，再用独立舰船图标区分视图。
+        battle_view = self._detect_battle_view()  # 由铭牌确认进入战斗，再用两个地图按钮区分视图。
         if battle_view is not None:  # 只有舰船铭牌存在时组合判断才属于战斗生命周期页面。
             return battle_view  # 返回大地图或普通战斗场景。
         if self._has_any(self.BATTLE_MODES):  # 任一支持的模式按钮均可确认模式选择页面。
@@ -652,16 +654,17 @@ class AutoPveBattleTask(MyBaseTask):  # 定义自动完成 PVE 战斗的一次�
     def _has_any(self, feature_names):  # 判断当前缓存截图中是否存在任一指定元素。
         return any(self.find_one(feature_name, threshold=self.threshold) is not None for feature_name in feature_names)  # 依次匹配并在发现首个元素时返回真。
 
-    def _detect_battle_view(self):  # 使用铭牌确认战斗状态，再仅用独立舰船图标区分两个视图。
+    def _detect_battle_view(self):  # 使用铭牌确认战斗状态，再用两个地图按钮共同确认大地图。
         nameplate_visible = self.find_one("Libertad-Nameplate", threshold=self.map_threshold) is not None  # 使用地图专用阈值检查两个页面都会出现的 Libertad 舰船铭牌。
         if not nameplate_visible:  # 没有舰船铭牌时不能确认已经进入战斗。
             return None  # 交给后续其他页面特征继续判断。
-        if self.get_feature_by_name("Ship-Icon") is None:  # 旧比例缺少独立图标模板时无法可靠区分视图。
-            return None  # 缺少模板不等同于画面中的图标消失。
-        ship_icon_visible = self.find_one("Ship-Icon", threshold=self.map_threshold) is not None  # 只检测独立舰船图标，不使用罗盘或地图教程。
-        return "battle" if ship_icon_visible else "map"  # 图标存在为战斗界面，图标不存在为大地图。
+        if any(self.get_feature_by_name(name) is None for name in self.MAP_VIEW_FEATURES):  # 当前比例必须具备两个地图按钮模板才能可靠区分视图。
+            return None  # 缺少模板时不推断已进入或关闭大地图。
+        button_threshold = min(self.map_threshold, self.MAP_VIEW_THRESHOLD)  # 按钮使用缩放适配阈值，同时尊重用户配置的更低阈值。
+        map_visible = all(self.find_one(name, threshold=button_threshold) is not None for name in self.MAP_VIEW_FEATURES)  # 同一帧中两个地图按钮必须同时命中。
+        return "map" if map_visible else "battle"  # 两个按钮同时存在为大地图，否则为普通战斗界面。
 
-    def _map_is_visible(self):  # 判断已进入战斗且独立舰船图标消失。
+    def _map_is_visible(self):  # 判断已进入战斗且两个地图按钮同时出现。
         return self._detect_battle_view() == "map"  # 仅组合判断结果为地图时返回真。
 
     def _map_is_closed(self):  # 必须重新确认战斗界面才能结束关闭地图的等待。

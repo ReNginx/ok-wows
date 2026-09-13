@@ -144,11 +144,11 @@ class TestBattleEntryFlow(unittest.TestCase):
         self.assertIsNone(self.task.find_one("Ship-Icon", threshold=self.task.map_threshold))
 
     @unittest.skipUnless(Path("ok_templates/21x9/14.png").is_file(), "Local reference screenshots unavailable")
-    def test_battle_views_with_left_panel_ship_icon_matching(self):
+    def test_battle_views_with_map_button_matching(self):
         for size in ((5120, 2160), (2560, 1080)):
             for threshold in (0.7, 0.8):
                 self.task.config["Template Threshold"] = threshold
-                for filename, expected in (("14.png", "map"), ("15.png", "battle"), ("16.png", "battle")):
+                for filename, expected in (("14.png", "map"), ("15.png", "battle"), ("16.png", "battle"), ("22.png", "map")):
                     with self.subTest(size=size, threshold=threshold, screenshot=filename):
                         frame = cv2.resize(cv2.imread(str(Path("ok_templates/21x9") / filename)), size)
                         self.bind_frame(make_bottom_right_black(frame))
