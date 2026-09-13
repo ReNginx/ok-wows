@@ -26,11 +26,12 @@ class TestShipNameOCR(unittest.TestCase):
 
     def fake_ocr(self, text, in_port):
         port = search_box("Join-Battle", self.executor.frame)
+        ship = search_box("Pick-First-Ship" if in_port else "Libertad-Nameplate", self.executor.frame)
 
         def recognize(*, box, **kwargs):
             if (box.x, box.y, box.width, box.height) == (port.x, port.y, port.width, port.height):
                 return [Box(port.x + 80, port.y + 25, 140, 40, .99, "加入战斗")] if in_port else []
-            return [Box(box.x + 40, box.y + 25, 120, 25, .99, text)]
+            return [Box(ship.x + 40, ship.y + 25, 120, 25, .99, text)] if box.x <= ship.x + 40 < box.x + box.width else []
         return recognize
 
     def test_ui_default_validation_and_diagnostic_option(self):
@@ -86,18 +87,21 @@ class TestShipNameOCR(unittest.TestCase):
         polygon = [[15, 10], [75, 10], [75, 35], [15, 35]]
         for name in SHIP_NAME_FEATURES:
             engine.reset_mock()
-            engine.ocr.side_effect = [[[[polygon, ("加入战斗", .99)]]] if name == "Pick-First-Ship" else [[]],
-                                      [[[polygon, ("自由", .99)]]]]
+            responses = iter([[[[polygon, ("加入战斗", .99)]]] if name == "Pick-First-Ship" else [[]],
+                              [[[polygon, ("自由", .99)]]]])
+            engine.ocr.side_effect = lambda image, **kwargs: next(responses, [[]])
             self.executor.ocr_lib.side_effect = lambda lib="default": engine
             with self.subTest(name=name), patch.object(cv2, "resize", side_effect=AssertionError("No image resize")), \
                     patch.object(self.task, "ocr", wraps=self.task.ocr) as ocr:
                 self.assertIsNotNone(self.task.find_one(name, target_height=480))
-            self.assertEqual(2, engine.ocr.call_count)
-            region = search_box(name, frame)
-            crop = engine.ocr.call_args.args[0]
-            self.assertEqual((region.height, region.width, 3), crop.shape)
-            self.assertTrue(np.shares_memory(frame, crop))
-            np.testing.assert_array_equal(frame[region.y:region.y + region.height, region.x:region.x + region.width], crop)
+            self.assertGreaterEqual(engine.ocr.call_count, 2)
+            for engine_call, ocr_call in zip(engine.ocr.call_args_list, ocr.call_args_list):
+                region = ocr_call.kwargs["box"]
+                crop = engine_call.args[0]
+                self.assertEqual((region.height, region.width, 3), crop.shape)
+                self.assertLessEqual(max(crop.shape[:2]), 960)
+                self.assertTrue(np.shares_memory(frame, crop))
+                np.testing.assert_array_equal(frame[region.y:region.y + region.height, region.x:region.x + region.width], crop)
             self.assertTrue(all(call.kwargs["target_height"] == 0 for call in ocr.call_args_list))
 
     @unittest.skipUnless(Path("ok_templates/21x9/28.png").is_file(), "Native ship screenshots unavailable")
@@ -116,15 +120,61 @@ class TestShipNameOCR(unittest.TestCase):
             self.assertIsNone(self.task.find_one(expected))
             self.task.config["Ship Name"] = "自由"
 
-    def test_both_search_regions_are_larger_and_stay_local(self):
-        for name in SHIP_NAME_FEATURES:
-            original = annotated_box(name, self.executor.frame)
-            expanded = search_box(name, self.executor.frame)
+    def test_port_covers_bottom_thirty_percent_and_battle_stays_local(self):
+        for width, height in ((5120, 2160), (2560, 1600), (1920, 1080)):
+            frame = np.zeros((height, width, 3), dtype=np.uint8)
+            region = search_box("Pick-First-Ship", frame)
+            self.assertEqual((0, round(height * .7), width, height - round(height * .7)),
+                             (region.x, region.y, region.width, region.height))
+            original = annotated_box("Libertad-Nameplate", frame)
+            expanded = search_box("Libertad-Nameplate", frame)
+            if original is None:
+                self.assertIsNone(expanded)
+                continue
             self.assertGreater(expanded.width, original.width)
             self.assertGreater(expanded.height, original.height)
-            self.assertLess(expanded.width, self.executor.frame.shape[1] * .2)
-            self.assertGreaterEqual(expanded.x, 0)
-            self.assertGreaterEqual(expanded.y, 0)
+            self.assertLess(expanded.width, width * .2)
+
+    def test_port_finds_far_right_and_deduplicates_overlapping_tiles(self):
+        frame = self.executor.frame
+        self.task.config["Ship Name"] = "瓦尔帕莱索"
+        for left in (760, 4800):
+            target = Box(left, 2020, 140, 30, .99, "瓦尔帕莱索")
+            def recognize(*, box, **kwargs):
+                if box.y == 0:
+                    return [Box(2450, 30, 150, 30, .99, "加入战斗")]
+                return [target] if box.x <= left and left + 140 <= box.x + box.width else []
+            with self.subTest(left=left), patch.object(self.task, "ocr", side_effect=recognize) as ocr:
+                match = self.task.find_one("Pick-First-Ship")
+                self.assertIsNotNone(match)
+                self.assertEqual(left, match.x)
+                tiles = [call.kwargs["box"] for call in ocr.call_args_list if call.kwargs["box"].y > 0]
+                self.assertEqual(0, tiles[0].x)
+                self.assertEqual(frame.shape[1], tiles[-1].x + tiles[-1].width)
+                self.assertTrue(all(b.y == 1512 and b.height == 648 for b in tiles))
+                self.assertTrue(all(a.x + a.width > b.x for a, b in zip(tiles, tiles[1:])))
+
+    def test_distinct_same_name_cards_are_still_ambiguous(self):
+        def recognize(*, box, **kwargs):
+            if box.y == 0:
+                return [Box(2450, 30, 150, 30, .99, "加入战斗")]
+            return [Box(x, 1800, 90, 30, .99, "自由") for x in (300, 4100)
+                    if box.x <= x and x + 90 <= box.x + box.width]
+        with patch.object(self.task, "ocr", side_effect=recognize):
+            self.assertIsNone(self.task.find_one("Pick-First-Ship"))
+
+    @unittest.skipUnless(Path("logs/task_failures/2026-09-13/18-00-31-844564_Auto PVE Battle_418886e3.png").is_file(),
+                         "Valparaiso failure screenshot unavailable")
+    def test_valparaiso_failure_frame_is_recognized_at_native_size(self):
+        frame = cv2.imread("logs/task_failures/2026-09-13/18-00-31-844564_Auto PVE Battle_418886e3.png")
+        self.executor.frame = frame
+        self.task.config["Ship Name"] = "瓦尔帕莱索"
+        bind_ocr(self.executor)
+        match = self.task.find_one("Pick-First-Ship")
+        self.assertIsNotNone(match)
+        self.assertGreaterEqual(match.confidence, .8)
+        self.assertTrue(250 <= match.x <= 280)
+        self.assertTrue(1810 <= match.y <= 1840)
 
 
 if __name__ == "__main__":

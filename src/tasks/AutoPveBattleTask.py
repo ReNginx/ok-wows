@@ -51,7 +51,7 @@ class AutoPveBattleTask(MyBaseTask):  # 定义自动完成 PVE 战斗的一次�
         self.config_description.update({  # 添加配置项在界面中的帮助说明。
             "Battle Count": "Number of completed battles before the task stops.",  # 说明战斗场数的含义。
             "Battle Mode": "Select PVE or Asymmetry battle mode.",  # 说明模式选择在首场准备时生效。
-            "Ship Name": "Enter the ship name shown in the game. Used for both port selection and battle recognition. Keep the ship visible near the first card.",  # 说明按当前游戏语言输入，并让目标船显示在首张卡片附近。
+            "Ship Name": "Enter the ship name shown in the game. Used for both port selection and battle recognition. Keep the ship visible in the bottom 30% of the screen.",  # 说明按当前游戏语言输入，并让目标船显示在屏幕底部 30%。
             "Close Game After Completion": "Close the game after the configured number of battles is completed.",  # 说明开关只在成功达到目标场数后关闭游戏。
             "Capture Battle Dataset": "Save battle and tactical-map screenshots every minute during battle.",  # 说明开关控制每分钟的战斗和地图截图采集。
             "Template Threshold": "Minimum confidence required for template matching.",  # 说明匹配阈值的含义。
@@ -181,7 +181,7 @@ class AutoPveBattleTask(MyBaseTask):  # 定义自动完成 PVE 战斗的一次�
             self.sleep(1)  # 刷新画面并响应用户停止，下一轮等待领取按钮就绪。
 
     def _prepare_and_join_first_battle(self):  # 在主界面完成首场战斗的全部准备动作。
-        if not self.wait_click_feature("Pick-First-Ship", threshold=self.threshold, time_out=15, raise_if_not_found=False, after_sleep=1):  # 在首张卡片附近点击配置的舰名文字。
+        if not self.wait_click_feature("Pick-First-Ship", threshold=self.threshold, time_out=15, raise_if_not_found=False, after_sleep=1):  # 在屏幕底部 30% 范围内点击配置的舰名文字。
             return False  # 找不到舰船入口时报告准备失败。
         if not self.wait_click_feature("Select-Battle-Mode", threshold=self.threshold, time_out=15, raise_if_not_found=False, after_sleep=1):  # 打开战斗模式选择页面。
             return False  # 找不到战斗模式入口时报告准备失败。

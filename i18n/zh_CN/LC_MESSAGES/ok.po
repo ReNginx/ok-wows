@@ -409,8 +409,8 @@ msgid "Ship Name"
 msgstr "舰船名称"
 
 #: src/tasks/AutoPveBattleTask.py
-msgid "Enter the ship name shown in the game. Used for both port selection and battle recognition. Keep the ship visible near the first card."
-msgstr "填写游戏中显示的舰船名称，用于港口选船和战斗内铭牌识别。请让目标船显示在首张卡片附近。"
+msgid "Enter the ship name shown in the game. Used for both port selection and battle recognition. Keep the ship visible in the bottom 30% of the screen."
+msgstr "填写游戏中显示的舰船名称，用于港口选船和战斗内铭牌识别。请让目标船显示在屏幕底部 30% 的区域内。"
 
 #: src/tasks/AutoPveBattleTask.py
 msgid "Ship Name must be a non-empty single-line name."

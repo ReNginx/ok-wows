@@ -96,13 +96,13 @@ def clipped_box(frame, left, top, right, bottom):  # 所有 OCR 区域先裁到�
 
 
 def search_box(name, frame):  # 采用实测过的邻近扩展范围，保留上下文文字。
+    height, width = frame.shape[:2]
+    if name == "Pick-First-Ship":
+        return clipped_box(frame, 0, height * .7, width, height)  # 港口选船搜索底部 30% 的全部行列。
     feature = annotated_box(name, frame)
     if feature is None:
         return None
-    height, width = frame.shape[:2]
     dx, dy = max(width * .035, feature.width * .35), max(height * .025, feature.height * .5)
-    if name in SHIP_NAME_FEATURES:
-        dx = max(width * .055, feature.width * .5) if name == "Pick-First-Ship" else dx  # 港口卡片适当加宽，战斗铭牌仍限制在左下角附近。
     if name in ("Continue-Battle", "Continue-Battle-After-Sunk"):
         dx, dy = feature.width * 1.5, feature.height * 1.5  # 同名按钮仍使用原有四倍局部范围。
     right = feature.x + feature.width + dx
@@ -117,6 +117,29 @@ def read_text(task, frame, region):  # 通过框架 OCR 处理繁简转换和坐
     return task.ocr(box=region, frame=frame, threshold=.5, target_height=0)  # 直接识别原始裁剪，不指定目标高度或重采样截图。
 
 
+def read_port_ship_text(task, frame, region):  # 分块保留小字像素，避免整条宽图触发检测器的长边压缩。
+    results = []
+    for top in range(region.y, region.y + region.height, 720):
+        for left in range(region.x, region.x + region.width, 720):
+            tile = clipped_box(frame, left, top, min(left + 960, region.x + region.width),
+                               min(top + 960, region.y + region.height))  # 相邻块重叠 240 像素，容纳边界处的舰名。
+            results.extend(read_text(task, frame, tile))
+    return results
+
+
+def unique_ship_matches(matches):  # 同一舰名跨块出现只计一次；不同位置的同名船仍视为歧义。
+    results = []
+    for item in sorted(matches, key=lambda item: item.confidence, reverse=True):
+        for other in results:
+            width = max(0, min(item.x + item.width, other.x + other.width) - max(item.x, other.x))
+            height = max(0, min(item.y + item.height, other.y + other.height) - max(item.y, other.y))
+            if width * height > .5 * min(item.width * item.height, other.width * other.height):
+                break  # 重叠过半的识别框来自同一文字，保留置信度较高者。
+        else:
+            results.append(item)
+    return results
+
+
 def find_text(task, name, frame, threshold, box=None):  # 将文字匹配结果转换回原元素名，兼容等待和点击流程。
     region = box or search_box(name, frame)
     if region is None:
@@ -128,11 +151,14 @@ def find_text(task, name, frame, threshold, box=None):  # 将文字匹配结果�
     wanted = ship_name(task) if name in SHIP_NAME_FEATURES else ""  # 每次查询读取当前配置，修改船名立即影响两个识别入口。
     if name in SHIP_NAME_FEATURES and not normalized(wanted):
         return None  # 空船名不能退化成匹配任意文字。
-    matches = [item for item in read_text(task, frame, region)
+    texts = read_port_ship_text(task, frame, region) if name == "Pick-First-Ship" else read_text(task, frame, region)
+    matches = [item for item in texts
                if item.confidence >= threshold and
                (normalized(item.name) in accepted or
                 (name in SHIP_NAME_FEATURES and matches_ship_name(item.name, wanted)) or
                 (name == "Control-Camera" and any(text in normalized(item.name) for text in accepted)))]  # F1 可能与完整提示合成同一行，仅该状态提示允许包含匹配。
+    if name == "Pick-First-Ship":
+        matches = unique_ship_matches(matches)
     if len(matches) != 1:  # 同一区域存在多个同名文字时不选择可能错误的点击目标。
         return None
     result = matches[0]
@@ -140,7 +166,7 @@ def find_text(task, name, frame, threshold, box=None):  # 将文字匹配结果�
 
 
 def find_ocr_feature(task, name, frame, threshold=0, box=None):  # 对同文案按钮添加同一帧中的场景约束。
-    if frame is None or annotated_box(name, frame) is None:
+    if frame is None or (name != "Pick-First-Ship" and annotated_box(name, frame) is None):
         return None
     threshold = threshold if threshold else task.threshold
     context_threshold = max(.8, threshold)  # 诊断的低阈值不能绕过确认弹窗的上下文检查。
