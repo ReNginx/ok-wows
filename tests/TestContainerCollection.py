@@ -85,6 +85,20 @@ class TestContainerCollection(unittest.TestCase):  # 覆盖领取耗尽、异常
                 self.executor.method.height = frame.shape[0]  # 提供真实画面高度。
                 self.assertIsNotNone(self.task.find_one(name, threshold=self.task.threshold))  # 确认正式模板可以在默认阈值下识别。
 
+    @unittest.skipUnless(Path("ok_templates/21x9/32.png").is_file(), "Container screenshot 32 unavailable")
+    def test_pick_container_matches_shifted_daily_container_on_screen_32(self):  # 复现活动列表使每日补给箱下移后无法识别的问题。
+        bind_ocr(self.executor)
+        original = cv2.imread("ok_templates/21x9/32.png")
+        for scale in (1, .5):
+            with self.subTest(scale=scale):
+                frame = original if scale == 1 else cv2.resize(original, None, fx=scale, fy=scale)
+                self.executor.frame = make_bottom_right_black(frame)
+                match = self.task.find_one("Pick-Container", threshold=self.task.threshold)
+                self.assertIsNotNone(match)
+                x, y = match.center()
+                self.assertTrue(0 < x < frame.shape[1] * .1)
+                self.assertTrue(frame.shape[0] * .39 < y < frame.shape[0] * .44)  # 点击必须落在左侧每日补给箱标题处。
+
     def test_restart_can_leave_container_screen(self):  # 领取结束停在集装箱页面时，下一次任务仍能回到主界面。
         for name in ("Pick-Container", "Confirm-Container"):  # 普通领取页和确认页都可以恢复。
             with self.subTest(name=name):  # 区分两种集装箱状态。

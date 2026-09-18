@@ -120,13 +120,26 @@ class TestShipNameOCR(unittest.TestCase):
         with patch.object(self.task, "ocr", side_effect=self.fake_ocr("VIX瓦尔帕莱索", True)):
             self.assertIsNone(self.task.find_one("Pick-First-Ship"))
 
-    def test_tier_icon_tolerance_still_requires_exact_name_and_valid_tier(self):
-        for text in ("VIX瓦尔帕莱索", "Ｖ IX 瓦尔帕莱索", "IX瓦尔帕莱索", "瓦尔帕莱索"):
-            self.assertTrue(matches_ship_name(text, "瓦尔帕莱索", allow_tier_icon=True), text)
-        for text in ("VIX瓦尔帕莱", "VIX瓦尔帕莱索B", "VIX新瓦尔帕莱索", "V瓦尔帕莱索B",
-                     "ABCIX瓦尔帕莱索", "VIIIX瓦尔帕莱索", "VIX大和"):
-            self.assertFalse(matches_ship_name(text, "瓦尔帕莱索", allow_tier_icon=True), text)
+    def test_battle_substring_matching_requires_nonempty_complete_ship_name(self):
+        for text in ("VIX瓦尔帕莱索", "Ｖ IX 瓦尔帕莱索", "IX瓦尔帕莱索", "瓦尔帕莱索",
+                     "VIX瓦尔帕莱索B", "ABCIX瓦尔帕莱索", "瓦尔帕莱索85500/85500"):
+            self.assertTrue(matches_ship_name(text, "瓦尔帕莱索", allow_substring=True), text)
+        for text in ("VIX瓦尔帕莱", "VIX大和", ""):
+            self.assertFalse(matches_ship_name(text, "瓦尔帕莱索", allow_substring=True), text)
+        for wanted in ("", " ", "!?"):
+            self.assertFalse(matches_ship_name("VIX瓦尔帕莱索", wanted, allow_substring=True))
         self.assertFalse(matches_ship_name("VIX瓦尔帕莱索", "瓦尔帕莱索"))
+
+    def test_battle_nameplate_accepts_logged_health_suffix_but_port_does_not(self):
+        self.task.config["Ship Name"] = "阿达尔伯特亲王"
+        for text in ("X阿达尔伯特亲王 63", "X 阿达尔伯特亲王63 900/63 900"):
+            with self.subTest(text=text), \
+                    patch.object(self.task, "ocr", side_effect=self.fake_ocr(text, False)), \
+                    patch.object(self.task, "get_feature_by_name", return_value=object()), \
+                    patch.object(MyBaseTask, "find_one", return_value=None):
+                self.assertEqual("battle", self.task._detect_battle_view())
+            with patch.object(self.task, "ocr", side_effect=self.fake_ocr(text, True)):
+                self.assertIsNone(self.task.find_one("Pick-First-Ship"))
 
     @unittest.skipUnless(Path("ok_templates/21x9/28.png").is_file(), "Native ship screenshots unavailable")
     def test_native_screens_port_and_battle_are_not_confused(self):

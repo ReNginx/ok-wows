@@ -59,15 +59,15 @@ def ship_name(task):  # 配置缺失时兼容旧用户，空值或错误类型�
     return value.strip() if isinstance(value, str) else ""
 
 
-def matches_ship_name(text, wanted, *, allow_tier_icon=False):  # 允许等级与名字合并；战斗铭牌可额外容忍图标被识别为 V。
+def matches_ship_name(text, wanted, *, allow_substring=False):  # 战斗铭牌使用船名子串匹配；港口仍完整匹配船名及可选等级。
     actual = normalized(unicodedata.normalize("NFKC", text))
     expected = normalized(unicodedata.normalize("NFKC", wanted))
     if not expected:
         return False
+    if allow_substring:
+        return expected in actual  # 容忍 OCR 将等级、图标或血量与船名合并。
     tiers = ("i", "ii", "iii", "iv", "v", "vi", "vii", "viii", "ix", "x", "xi")
-    return actual == expected or any(actual == prefix + tier + expected
-                                     for prefix in (("", "v") if allow_tier_icon else ("",))
-                                     for tier in tiers)  # 必须完整匹配船名，不接受任意前缀或其他船名的子串。
+    return actual == expected or any(actual == tier + expected for tier in tiers)  # 港口避免误选包含相同子串的其他船。
 
 
 @lru_cache(maxsize=3)
@@ -106,6 +106,8 @@ def search_box(name, frame):  # 采用实测过的邻近扩展范围，保留上
     feature = annotated_box(name, frame)
     if feature is None:
         return None
+    if name == "Pick-Container":
+        return clipped_box(frame, 0, 0, width * .5, height)  # 每日补给箱随左侧活动列表上下移动，搜索整个左半屏。
     dx, dy = max(width * .035, feature.width * .35), max(height * .025, feature.height * .5)
     if name in ("Continue-Battle", "Continue-Battle-After-Sunk"):
         dx, dy = feature.width * 1.5, feature.height * 1.5  # 同名按钮仍使用原有四倍局部范围。
@@ -159,7 +161,7 @@ def find_text(task, name, frame, threshold, box=None):  # 将文字匹配结果�
     matches = [item for item in texts
                if item.confidence >= threshold and
                (normalized(item.name) in accepted or
-                (name in SHIP_NAME_FEATURES and matches_ship_name(item.name, wanted, allow_tier_icon=name == "Libertad-Nameplate")) or
+                (name in SHIP_NAME_FEATURES and matches_ship_name(item.name, wanted, allow_substring=name == "Libertad-Nameplate")) or
                 (name == "Control-Camera" and any(text in normalized(item.name) for text in accepted)))]  # F1 可能与完整提示合成同一行，仅该状态提示允许包含匹配。
     if name == "Pick-First-Ship":
         matches = unique_ship_matches(matches)
