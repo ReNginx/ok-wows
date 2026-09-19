@@ -23,6 +23,7 @@ class AutoPveBattleTask(MyBaseTask):  # 定义自动完成 PVE 战斗的一次�
     MAP_VIEW_THRESHOLD = 0.70  # 小按钮缩小一半后受像素取整影响，配合双按钮共同确认降低漏识别。
     MAP_POINT_SETTLE_SECONDS = 3  # 点击地图航点后等待标记和路线动画稳定再尝试关闭地图。
     MAP_RETURN_TIMEOUT = 8  # 按返回键后最多等待八秒确认大地图已经消失。
+    END_SCREEN_FADE_TIMEOUT = 10  # 点击续战或确认离开后最多等待十秒确认战斗结束画面已经消失。
     NAVIGATION_START_DELAY = 25  # 入场后等待开局提示文字消失，再打开大地图导航。
     STARTUP_TIMEOUT = 300  # 从任务开始识别游戏画面起，最多等待五分钟完成加载并到达港口。
     SCREEN_BUTTON_RETRY_INTERVAL = 5  # 同一入口按钮点击后至少等待五秒再尝试，避免加载动画期间连续点击。
@@ -145,6 +146,8 @@ class AutoPveBattleTask(MyBaseTask):  # 定义自动完成 PVE 战斗的一次�
             if not self.wait_click_feature("Continue-Battle", threshold=self.threshold, time_out=30, raise_if_not_found=False, after_sleep=2):  # 未达到目标时点击继续战斗进入下一次排队。
                 self.log_error("没有找到继续战斗按钮，任务停止。")  # 记录无法进入下一场战斗的原因。
                 return  # 无法继续战斗时安全结束任务。
+            if not self._wait_end_screen_gone():  # 等待结算页淡出完成，避免过渡帧被误判为新一场结算而虚报完成进度。
+                return  # 点击未生效时已记录具体原因，保留现场并停止任务。
 
     def _finish_successfully(self):  # 达到设定场数后先回港领取集装箱，再通知完成并按配置关闭游戏。
         if not self._return_to_main():  # 正常结算和击沉离开都必须等待主界面加载完成。
@@ -398,6 +401,16 @@ class AutoPveBattleTask(MyBaseTask):  # 定义自动完成 PVE 战斗的一次�
                 return False  # 报告战斗流程超时并交由外层停止任务。
             self.sleep(1)  # 对加载画面和短暂动画留出一秒缓冲。
 
+    def _wait_end_screen_gone(self):  # 点击续战或确认离开后等待战斗结束画面真正消失，避免淡出过渡帧被误判为新一场结算。
+        def end_screen_gone():  # 结算页按钮和击沉确认页标题同时不可见才算离开战斗结束画面。
+            result_screen_gone = self.find_one("Back-To-Port", threshold=self.threshold) is None  # 结算页的回到港口按钮已经消失。
+            leave_dialog_gone = self.find_one("Leave-Battle-Title", threshold=self.threshold) is None  # 击沉确认页的离开战斗标题也已消失。
+            return result_screen_gone and leave_dialog_gone  # 任一残留都说明画面仍在淡出或按钮点击未生效。
+        if self.wait_until(end_screen_gone, time_out=self.END_SCREEN_FADE_TIMEOUT, raise_if_not_found=False):  # 等待接口每轮自动刷新截图后重新判断。
+            return True  # 战斗结束画面已消失，可以安全进入下一场排队或返回港口。
+        self.log_error(f"点击继续或确认离开后 {self.END_SCREEN_FADE_TIMEOUT} 秒战斗结束画面仍未消失，任务停止。")  # 区分按钮点击未生效和正常淡出延迟。
+        return False  # 保留现场供用户检查按钮是否生效。
+
     def _capture_battle_dataset(self, directory):  # 在同一任务线程内采集战斗和大地图，避免与战斗输入并发冲突。
         if not self.config.get("Capture Battle Dataset", False):  # 调用前再次检查开关，关闭时不额外截图或发送地图按键。
             return False  # 即使单独调用采集方法也必须尊重用户开关。
@@ -447,13 +460,19 @@ class AutoPveBattleTask(MyBaseTask):  # 定义自动完成 PVE 战斗的一次�
         continue_button, confirm_button = followup  # 拆出可能同时存在的继续战斗和确认离开按钮。
         if can_continue and continue_button is not None:  # 场次未满且识别到继续战斗按钮时点击续战。
             self.click(continue_button, after_sleep=2)  # 点击继续战斗进入下一场排队。
+            if not self._wait_end_screen_gone():  # 等待击沉确认页消失，避免残留画面被误判为结算页或再次进入离开流程。
+                return False  # 保留现场并停止本场处理，具体原因已由等待流程记录。
             return "continued"  # 告诉外层本场已完成且已经点击续战。
         if confirm_button is not None:  # 场次已满或没有继续战斗按钮时改为确认离开。
             self.click(confirm_button, after_sleep=3)  # 点击确认离开战斗按钮。
+            if not self._wait_end_screen_gone():  # 确认离开同样等待页面消失，返回港口流程才能正确识别主界面。
+                return False  # 保留现场并停止本场处理，具体原因已由等待流程记录。
             return "left"  # 告诉外层已经确认离开当前战斗。
         if not self.wait_click_feature("Leave-Battle-Confirm", threshold=self.threshold, time_out=10, raise_if_not_found=False, after_sleep=3):  # 当前帧没有确认按钮时再等待一次。
             self.log_error("没有找到确认离开战斗按钮。")  # 记录无法离开当前战斗的原因。
             return False  # 未能确认离开时停止本场处理。
+        if not self._wait_end_screen_gone():  # 兜底点击后同样确认页面已经切换。
+            return False  # 保留现场并停止本场处理，具体原因已由等待流程记录。
         return "left"  # 已确认离开当前战斗。
 
     def _find_leave_followup(self):  # 在 ESC 后的后续页面中查找继续战斗或确认离开按钮。
