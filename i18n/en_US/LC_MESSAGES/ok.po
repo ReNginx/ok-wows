@@ -427,3 +427,23 @@ msgstr "Ship Name must be a non-empty single-line name."
 #: src/tasks/AutoPveBattleTask.py
 msgid "自由"
 msgstr "自由"
+
+#: src/interaction_config.py
+msgid "Game Interaction"
+msgstr "Game Interaction"
+
+#: src/interaction_config.py
+msgid "Shared input settings for all game tasks."
+msgstr "Shared input settings for all game tasks."
+
+#: src/interaction_config.py
+msgid "Button Wait (Seconds)"
+msgstr "Button Wait (Seconds)"
+
+#: src/interaction_config.py
+msgid "Minimum seconds to wait after menu clicks or key presses. Battle controls keep their original timing. Longer existing waits are preserved; 0 keeps only the original waits."
+msgstr "Minimum seconds to wait after menu clicks or key presses. Battle controls keep their original timing. Longer existing waits are preserved; 0 keeps only the original waits."
+
+#: src/interaction_config.py
+msgid "Button wait must be a finite number greater than or equal to 0."
+msgstr "Button wait must be a finite number greater than or equal to 0."

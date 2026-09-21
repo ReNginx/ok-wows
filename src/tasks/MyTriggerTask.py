@@ -1,7 +1,8 @@
 from ok import TriggerTask
+from src.tasks.MyBaseTask import MyBaseTask
 
 
-class MyTriggerTask(TriggerTask):
+class MyTriggerTask(TriggerTask, MyBaseTask):  # 后台任务也共用全局游戏操作等待。
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)

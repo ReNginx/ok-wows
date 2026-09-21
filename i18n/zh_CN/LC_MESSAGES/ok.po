@@ -419,3 +419,23 @@ msgstr "舰船名称不能为空，且必须为单行有效文字。"
 #: src/tasks/AutoPveBattleTask.py
 msgid "自由"
 msgstr "自由"
+
+#: src/interaction_config.py
+msgid "Game Interaction"
+msgstr "游戏操作"
+
+#: src/interaction_config.py
+msgid "Shared input settings for all game tasks."
+msgstr "所有游戏任务共用的操作设置。"
+
+#: src/interaction_config.py
+msgid "Button Wait (Seconds)"
+msgstr "按钮等待时间（秒）"
+
+#: src/interaction_config.py
+msgid "Minimum seconds to wait after menu clicks or key presses. Battle controls keep their original timing. Longer existing waits are preserved; 0 keeps only the original waits."
+msgstr "菜单点击或按键后至少等待的秒数，战斗内操作保持原有节奏。保留原有更长的等待；设为 0 时仅保留各步骤原来的等待。"
+
+#: src/interaction_config.py
+msgid "Button wait must be a finite number greater than or equal to 0."
+msgstr "按钮等待时间必须是大于或等于 0 的有限数字。"

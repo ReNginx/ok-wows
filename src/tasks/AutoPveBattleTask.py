@@ -10,7 +10,7 @@ import numpy as np  # 导入数组工具以计算模板边缘的地图背景色�
 from ok import Box  # 使用截图像素坐标限制舰船图标的搜索范围。
 from qfluentwidgets import FluentIcon  # 导入任务列表中使用的内置图标。
 
-from src.tasks.MyBaseTask import MyBaseTask  # 导入项目本地任务基类。
+from src.tasks.MyBaseTask import MyBaseTask, preserve_input_timing  # 导入任务基类与战斗原始时序保护。
 from src.tasks.feature_ocr import DEFAULT_SHIP_NAME, OCR_TEXTS, find_ocr_feature, normalized  # 共用文字识别及用户指定舰名。
 from src.task_failure_capture import save_failure_screenshot  # 专用按钮和统一退出钩子共用持久截图保存逻辑。
 
@@ -398,6 +398,7 @@ class AutoPveBattleTask(MyBaseTask):  # 定义自动完成 PVE 战斗的一次�
                 return False  # 报告战斗流程超时并交由外层停止任务。
             self.sleep(1)  # 对加载画面和短暂动画留出一秒缓冲。
 
+    @preserve_input_timing
     def _capture_battle_dataset(self, directory):  # 在同一任务线程内采集战斗和大地图，避免与战斗输入并发冲突。
         if not self.config.get("Capture Battle Dataset", False):  # 调用前再次检查开关，关闭时不额外截图或发送地图按键。
             return False  # 即使单独调用采集方法也必须尊重用户开关。
@@ -428,6 +429,7 @@ class AutoPveBattleTask(MyBaseTask):  # 定义自动完成 PVE 战斗的一次�
         self.log_info(f"已保存战斗与大地图截图：{directory / sample_name}")  # 报告本组文件的共同前缀以便定位。
         return True  # 两张 PNG 都成功写入后才报告成功。
 
+    @preserve_input_timing
     def _send_battle_action(self, action_index):  # 发送当前轮换位置对应的战斗输入并返回下一位置。
         actions = ("left_click", "r", "t", "f")  # 定义鼠标左键、R、T、F 的固定循环顺序。
         action = actions[action_index % len(actions)]  # 把任意输入索引归一化到四项循环内。
@@ -463,6 +465,7 @@ class AutoPveBattleTask(MyBaseTask):  # 定义自动完成 PVE 战斗的一次�
             return None  # 告诉等待接口当前帧还不是后续页面。
         return continue_button, confirm_button  # 把找到的按钮交给击沉处理逻辑选择点击目标。
 
+    @preserve_input_timing
     def _initialize_battle_navigation(self):  # 在战斗开始时完成前进输入并打开地图。
         if self._detect_scene() != "battle":  # 等待期间可能出现击沉、结算或弹窗，必须刷新截图重新确认。
             self.log_info("本场开局等待已结束，当前未能确认战斗界面；重新识别后继续导航，不重复等待。")
@@ -472,6 +475,7 @@ class AutoPveBattleTask(MyBaseTask):  # 定义自动完成 PVE 战斗的一次�
         self.send_key("m", after_sleep=2)  # 按 M 键打开地图模式并等待地图绘制。
         return self._handle_map()  # 在地图上选择航点，并将初始化结果交回场景循环。
 
+    @preserve_input_timing
     def _handle_map(self):  # 先点击地图对侧设置备用航点，再尝试占领区或敌方基地。
         map_anchor = self.wait_until(self._map_is_visible, time_out=20, raise_if_not_found=False)  # 等待舰船铭牌和两个地图按钮同时出现。
         if map_anchor is None:  # 检查 M 键是否成功打开了大地图。
@@ -579,6 +583,7 @@ class AutoPveBattleTask(MyBaseTask):  # 定义自动完成 PVE 战斗的一次�
         border_color = tuple(int(channel) for channel in np.median(edge_pixels, axis=0))  # 使用边缘中位色填充旋转产生的空白角落。
         return cv2.warpAffine(template, matrix, (rotated_width, rotated_height), flags=cv2.INTER_LINEAR, borderMode=cv2.BORDER_CONSTANT, borderValue=border_color)  # 生成完整且背景连续的旋转模板。
 
+    @preserve_input_timing
     def _close_map(self):  # 关闭大地图并等待确认已经回到动态战斗画面。
         self.send_key("esc", after_sleep=1)  # 在航点动画稳定后优先按工作流要求使用 ESC 返回战斗界面。
         map_closed = self.wait_until(self._map_is_closed, time_out=self.MAP_RETURN_TIMEOUT, raise_if_not_found=False)  # 持续刷新画面而不是固定两秒后只检查一次。
