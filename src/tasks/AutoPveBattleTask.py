@@ -495,7 +495,7 @@ class AutoPveBattleTask(MyBaseTask):  # 定义自动完成 PVE 战斗的一次�
         return self._handle_map()  # 在地图上选择航点，并将初始化结果交回场景循环。
 
     @preserve_input_timing
-    def _handle_map(self):  # 先点击地图对侧设置备用航点，再尝试占领区或敌方基地。
+    def _handle_map(self):  # 按住 Shift 依次追加占领区或敌方基地，最后追加地图对侧。
         map_anchor = self.wait_until(self._map_is_visible, time_out=20, raise_if_not_found=False)  # 等待舰船铭牌和两个地图按钮同时出现。
         if map_anchor is None:  # 检查 M 键是否成功打开了大地图。
             self.log_warning("没有识别到大地图锚点，跳过本次地图选点。")  # 记录地图未成功打开或仍处于加载中的情况。
@@ -520,22 +520,37 @@ class AutoPveBattleTask(MyBaseTask):  # 定义自动完成 PVE 战斗的一次�
             else:  # 敌方基地分数更高时按两点图处理。
                 self.log_info(f"敌方基地 {enemy_base.confidence * 100:.2f}% 高于占领区最高分 {area_score * 100:.2f}%，忽略占领区。")  # 记录互斥判断结果以便核对误识别。
                 target_areas = []  # 丢弃较低分的占领区匹配。
-        if ship_cursor is not None:  # 能定位舰船时先设置备用航点，避免后续占领区落在陆地上而没有航路。
-            cursor_x, cursor_y = ship_cursor.center()  # 读取当前舰船在主地图中的中心坐标。
-            opposite_x = map_overview.x + map_overview.width - (cursor_x - map_overview.x)  # 以主地图中心为轴把舰船水平位置映射到另一侧。
-            opposite_y = map_overview.y + map_overview.height - (cursor_y - map_overview.y)  # 以主地图中心为轴把舰船垂直位置映射到另一侧。
-            self.log_info(f"先点击地图对侧 ({opposite_x}, {opposite_y}) 设置备用航点，再尝试目标点。")  # 记录备用航点及点击顺序，不把点击当作已确认航路成功。
-            self.click(opposite_x, opposite_y, name="opposite-map-side", after_sleep=self.MAP_POINT_SETTLE_SECONDS)  # 先点击对侧并等待三秒，让游戏处理航路后再尝试目标点。
-        if ship_cursor is not None and target_areas:  # 舰船位置和至少一个非绿色占领区存在时计算最近目标。
-            nearest_area, nearest_color = min(target_areas, key=lambda area: ship_cursor.center_distance(area[0]))  # 用元素中心点距离选出最近的灰色或红色区域并保留其颜色。
-            self.log_info(f"选择最近占领区 {nearest_area.name}，颜色为 {nearest_color}，分数 {nearest_area.confidence * 100:.2f}%，阈值 {self.map_threshold * 100:.2f}%，中心 ({nearest_area.center()[0]}, {nearest_area.center()[1]})。")  # 记录最终目标的颜色、分数、阈值与位置。
-            self.click(nearest_area, after_sleep=self.MAP_POINT_SETTLE_SECONDS)  # 点击最近区域并等待航点标记及路线动画稳定。
-        elif enemy_base is not None:  # 没有可选择的占领区但识别到敌方基地时直接进攻基地。
+        if ship_cursor is not None and target_areas:  # 舰船位置和至少一个非绿色占领区存在时按住 Shift 依次选点。
+            ordered_areas = sorted(target_areas, key=lambda area: ship_cursor.center_distance(area[0]))  # 把全部灰色和红色占领区按与舰船的距离由近及远排序。
+            self.send_key_down("shift", after_sleep=0.5)  # 按住 Shift，让后续每次点击都作为队列航点追加而不是替换已有航路。
+            try:  # 保证任何异常或用户停止都能执行释放 Shift 的收尾动作。
+                for index, (area_box, area_color) in enumerate(ordered_areas, start=1):  # 按照由近及远的顺序逐个点击所有灰红占领区。
+                    self.log_info(f"按住 Shift 点击第 {index}/{len(ordered_areas)} 个占领区 {area_box.name}，颜色为 {area_color}，分数 {area_box.confidence * 100:.2f}%，阈值 {self.map_threshold * 100:.2f}%，中心 ({area_box.center()[0]}, {area_box.center()[1]})。")  # 记录每个目标的顺序、颜色、分数、阈值与位置。
+                    self.click(area_box, after_sleep=self.MAP_POINT_SETTLE_SECONDS)  # 点击当前区域并等待航点标记及路线动画稳定。
+                self._click_opposite_map_point(ship_cursor, map_overview)  # 按住 Shift 把地图对侧追加为队列最后的目标点。
+            finally:  # 释放修饰键必须早于关闭地图，避免 Shift 一直处于按下状态。
+                self.send_key_up("shift", after_sleep=1)  # 全部目标点击完成后松开 Shift 并留出一帧处理时间。
+        elif enemy_base is not None:  # 没有可选择的占领区但识别到敌方基地时先点击基地。
             self.click(enemy_base, after_sleep=self.MAP_POINT_SETTLE_SECONDS)  # 点击敌方基地并等待航点标记及路线动画稳定。
-        elif ship_cursor is None:  # 没有目标且舰船光标也缺失时无法设置地图对侧的备用航点。
+            if ship_cursor is not None:  # 只有识别到舰船位置时才能计算对侧点并追加到基地之后。
+                self.send_key_down("shift", after_sleep=0.5)  # 按住 Shift，让对侧点追加而不是替换基地航路。
+                try:  # 保证任何异常或用户停止都能执行释放 Shift 的收尾动作。
+                    self._click_opposite_map_point(ship_cursor, map_overview)  # 把地图对侧追加为队列最后的目标点。
+                finally:  # 释放修饰键必须早于关闭地图，避免 Shift 一直处于按下状态。
+                    self.send_key_up("shift", after_sleep=1)  # 追加完成后松开 Shift 并留出一帧处理时间。
+        elif ship_cursor is not None:  # 没有区域或基地但能定位舰船时仍导航到地图对侧。
+            self._click_opposite_map_point(ship_cursor, map_overview)  # 未识别到任何目标时把对侧点作为唯一航点。
+        else:  # 没有目标且舰船光标也缺失时无法设置地图对侧的备用航点。
             self.log_warning("没有识别到舰船光标、占领区或敌方基地，跳过本次地图选点。")  # 避免在无法确定当前位置时误点地图。
         self._close_map()  # 关闭大地图并在 ESC 未生效时使用地图切换键兜底。
         return True  # 报告本次大地图已经成功识别并关闭。
+
+    def _click_opposite_map_point(self, ship_cursor, map_overview):  # 计算舰船位置的地图中心对称点并点击。
+        cursor_x, cursor_y = ship_cursor.center()  # 读取当前舰船在主地图中的中心坐标。
+        opposite_x = map_overview.x + map_overview.width - (cursor_x - map_overview.x)  # 以主地图中心为轴把舰船水平位置映射到另一侧。
+        opposite_y = map_overview.y + map_overview.height - (cursor_y - map_overview.y)  # 以主地图中心为轴把舰船垂直位置映射到另一侧。
+        self.log_info(f"点击地图对侧 ({opposite_x}, {opposite_y}) 作为最后的目标点。")  # 记录对侧航点坐标及追加时机。
+        self.click(opposite_x, opposite_y, name="opposite-map-side", after_sleep=self.MAP_POINT_SETTLE_SECONDS)  # 点击对侧点并等待航点标记及路线动画稳定。
 
     def _find_scored_map_feature(self, feature_name, color=None, **kwargs):  # 获取原始匹配分数并在记录后应用地图阈值。
         match = self.find_one(feature_name, threshold=-1.0, **kwargs)  # 取得最佳候选以便低于阈值时也能诊断误匹配。

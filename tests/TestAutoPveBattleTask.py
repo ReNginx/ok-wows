@@ -153,20 +153,24 @@ class TestAutoPveBattleTask(unittest.TestCase):  # 定义不共享全局应用�
         button = self.task.find_one("Continue-Battle", threshold=self.task.threshold)  # 使用标注宽高各四倍的局部范围搜索。
         self.assertIsNone(button)  # 确认范围外的中心确认框不再被结算页模板命中。
 
-    def test_map_selects_nearest_recognized_area_without_requiring_all_four(self):  # 验证只识别到部分区域时也会选择其中最近的一个。
+    def test_map_shift_clicks_all_recognized_areas_from_nearest_to_farthest(self):  # 验证识别到的全部灰红占领区都会按住 Shift 按距离由近及远点击。
         map_overview = Box(0, 0, 300, 300, name="Map-Overview")  # 构造十九号截图标注对应的主地图范围。
         cursor = Box(0, 0, 10, 10, name="My-Ship-Cursor")  # 构造舰船光标位置。
         area_a = Box(10, 0, 10, 10, name="Area-A")  # 构造距离舰船最近但不应导航的绿色 A 区。
         area_b = Box(100, 0, 10, 10, name="Area-B")  # 构造距离舰船较远的红色 B 区。
-        area_d = Box(20, 0, 10, 10, name="Area-D")  # 构造距离舰船最近的 D 区。
+        area_d = Box(20, 0, 10, 10, name="Area-D")  # 构造距离舰船最近的灰色 D 区。
         areas = {"Area-A": (area_a, "green"), "Area-B": (area_b, "red"), "Area-D": (area_d, "gray")}  # 提供绿色、红色和灰色结果以验证导航过滤规则。
-        with patch.object(self.task, "wait_until", return_value=True), patch.object(self.task, "next_frame"), patch.object(self.task, "get_box_by_name", return_value=map_overview), patch.object(self.task, "_find_rotated_ship_cursor", return_value=cursor) as find_cursor, patch.object(self.task, "_find_area", side_effect=lambda name, box: areas.get(name, (None, None))) as find_area, patch.object(self.task, "find_one", return_value=None), patch.object(self.task, "click") as click, patch.object(self.task, "_close_map"), patch.object(self.task, "log_info") as log_info:  # 隔离地图处理中的截图和输入操作。
+        with patch.object(self.task, "wait_until", return_value=True), patch.object(self.task, "next_frame"), patch.object(self.task, "get_box_by_name", return_value=map_overview), patch.object(self.task, "_find_rotated_ship_cursor", return_value=cursor) as find_cursor, patch.object(self.task, "_find_area", side_effect=lambda name, box: areas.get(name, (None, None))) as find_area, patch.object(self.task, "find_one", return_value=None), patch.object(self.task, "send_key_down") as key_down, patch.object(self.task, "send_key_up") as key_up, patch.object(self.task, "click") as click, patch.object(self.task, "_close_map"), patch.object(self.task, "log_info") as log_info:  # 隔离地图处理中的截图和输入操作。
             self.task._handle_map()  # 执行一次地图航点选择。
         find_cursor.assert_called_once_with(map_overview)  # 确认舰船光标只在十九号截图框定的主地图范围内查找。
         for feature_name in ("Area-A", "Area-B", "Area-C", "Area-D"):  # 逐一检查四个区域的颜色识别范围。
             find_area.assert_any_call(feature_name, map_overview)  # 确认每个区域都限制在主地图范围内并返回颜色。
-        self.assertEqual([call(295, 295, name="opposite-map-side", after_sleep=3), call(area_d, after_sleep=3)], click.call_args_list)  # 必须先点地图对侧并等待，再点最近的非绿色占领区。
-        log_info.assert_any_call(f"选择最近占领区 Area-D，颜色为 gray，分数 {area_d.confidence * 100:.2f}%，阈值 75.00%，中心 (25, 5)。")  # 确认导航日志包含目标分数、阈值和位置。
+        key_down.assert_called_once_with("shift", after_sleep=0.5)  # 确认点击占领区前只按住一次 Shift。
+        key_up.assert_called_once_with("shift", after_sleep=1)  # 确认全部目标点击完成后释放 Shift。
+        self.assertEqual([call(area_d, after_sleep=3), call(area_b, after_sleep=3), call(295, 295, name="opposite-map-side", after_sleep=3)], click.call_args_list)  # 必须先按距离由近及远点击全部灰红占领区，再把地图对侧追加为最后的目标点。
+        log_info.assert_any_call(f"按住 Shift 点击第 1/2 个占领区 Area-D，颜色为 gray，分数 {area_d.confidence * 100:.2f}%，阈值 75.00%，中心 (25, 5)。")  # 确认导航日志包含最近目标的顺序、分数、阈值和位置。
+        log_info.assert_any_call(f"按住 Shift 点击第 2/2 个占领区 Area-B，颜色为 red，分数 {area_b.confidence * 100:.2f}%，阈值 75.00%，中心 (105, 5)。")  # 确认导航日志包含最远目标的顺序、分数、阈值和位置。
+        log_info.assert_any_call("点击地图对侧 (295, 295) 作为最后的目标点。")  # 确认对侧航点在全部占领区之后追加。
 
     def test_area_recognition_returns_highest_scoring_color(self):  # 验证单个区域会比较三种颜色并返回最高分颜色。
         map_overview = Box(0, 0, 300, 300, name="Map-Overview")  # 构造颜色模板搜索使用的主地图范围。
@@ -209,36 +213,42 @@ class TestAutoPveBattleTask(unittest.TestCase):  # 定义不共享全局应用�
         cursor = Box(120, 500, 10, 10, name="My-Ship-Cursor")  # 构造舰船光标以便走占领区分支时也能点击。
         area_a = Box(200, 500, 10, 10, confidence=0.83, name="Area-A")  # 构造较低分的灰色占领区误识别。
         enemy_base = Box(700, 150, 20, 20, confidence=0.93, name="Enemy-Base")  # 构造更高分的敌方基地匹配。
-        with patch.object(self.task, "wait_until", return_value=True), patch.object(self.task, "next_frame"), patch.object(self.task, "get_box_by_name", return_value=map_overview), patch.object(self.task, "_find_rotated_ship_cursor", return_value=cursor), patch.object(self.task, "_find_area", side_effect=lambda name, box: (area_a, "gray") if name == "Area-A" else (None, None)), patch.object(self.task, "find_one", side_effect=lambda name, **kwargs: enemy_base if name == "Enemy-Base" else None), patch.object(self.task, "click") as click, patch.object(self.task, "_close_map"), patch.object(self.task, "log_info"):  # 模拟二十二号截图这类两点图同时出现占领区误识别。
+        with patch.object(self.task, "wait_until", return_value=True), patch.object(self.task, "next_frame"), patch.object(self.task, "get_box_by_name", return_value=map_overview), patch.object(self.task, "_find_rotated_ship_cursor", return_value=cursor), patch.object(self.task, "_find_area", side_effect=lambda name, box: (area_a, "gray") if name == "Area-A" else (None, None)), patch.object(self.task, "find_one", side_effect=lambda name, **kwargs: enemy_base if name == "Enemy-Base" else None), patch.object(self.task, "send_key_down") as key_down, patch.object(self.task, "send_key_up") as key_up, patch.object(self.task, "click") as click, patch.object(self.task, "_close_map"), patch.object(self.task, "log_info"):  # 模拟二十二号截图这类两点图同时出现占领区误识别。
             self.task._handle_map()  # 执行一次地图航点选择。
-        self.assertEqual([call(875, 295, name="opposite-map-side", after_sleep=3), call(enemy_base, after_sleep=3)], click.call_args_list)  # 先设置备用航点，再点击更高分的敌方基地。
+        self.assertEqual([call(enemy_base, after_sleep=3), call(875, 295, name="opposite-map-side", after_sleep=3)], click.call_args_list)  # 先点击更高分的敌方基地，再按住 Shift 追加地图对侧目标点。
+        key_down.assert_called_once_with("shift", after_sleep=0.5)  # 确认追加对侧航点前按住 Shift。
+        key_up.assert_called_once_with("shift", after_sleep=1)  # 确认追加完成后释放 Shift。
 
     def test_map_prefers_higher_scoring_areas_over_enemy_base(self):  # 验证占领区分数更高时忽略同时命中的敌方基地。
         map_overview = Box(0, 0, 300, 300, name="Map-Overview")  # 构造主地图范围。
         cursor = Box(0, 0, 10, 10, name="My-Ship-Cursor")  # 构造舰船光标位置。
         area_d = Box(20, 0, 10, 10, confidence=0.96, name="Area-D")  # 构造更高分的灰色占领区。
         enemy_base = Box(200, 200, 20, 20, confidence=0.80, name="Enemy-Base")  # 构造较低分的敌方基地误识别。
-        with patch.object(self.task, "wait_until", return_value=True), patch.object(self.task, "next_frame"), patch.object(self.task, "get_box_by_name", return_value=map_overview), patch.object(self.task, "_find_rotated_ship_cursor", return_value=cursor), patch.object(self.task, "_find_area", side_effect=lambda name, box: (area_d, "gray") if name == "Area-D" else (None, None)), patch.object(self.task, "find_one", side_effect=lambda name, **kwargs: enemy_base if name == "Enemy-Base" else None), patch.object(self.task, "click") as click, patch.object(self.task, "_close_map"), patch.object(self.task, "log_info"):  # 模拟四点图同时出现敌方基地误识别。
+        with patch.object(self.task, "wait_until", return_value=True), patch.object(self.task, "next_frame"), patch.object(self.task, "get_box_by_name", return_value=map_overview), patch.object(self.task, "_find_rotated_ship_cursor", return_value=cursor), patch.object(self.task, "_find_area", side_effect=lambda name, box: (area_d, "gray") if name == "Area-D" else (None, None)), patch.object(self.task, "find_one", side_effect=lambda name, **kwargs: enemy_base if name == "Enemy-Base" else None), patch.object(self.task, "send_key_down") as key_down, patch.object(self.task, "send_key_up") as key_up, patch.object(self.task, "click") as click, patch.object(self.task, "_close_map"), patch.object(self.task, "log_info"):  # 模拟四点图同时出现敌方基地误识别。
             self.task._handle_map()  # 执行一次地图航点选择。
-        self.assertEqual([call(295, 295, name="opposite-map-side", after_sleep=3), call(area_d, after_sleep=3)], click.call_args_list)  # 先设置备用航点，再点击更高分的占领区。
+        self.assertEqual([call(area_d, after_sleep=3), call(295, 295, name="opposite-map-side", after_sleep=3)], click.call_args_list)  # 先按住 Shift 点击保留的更高分占领区，再把地图对侧追加为最后的目标点。
+        key_down.assert_called_once_with("shift", after_sleep=0.5)  # 确认选中占领区时按住 Shift 追加航点。
+        key_up.assert_called_once_with("shift", after_sleep=1)  # 确认点击完成后释放 Shift。
 
-    def test_map_keeps_opposite_route_when_area_click_is_rejected(self):  # 模拟陆地占领点不接受航点时保留先前的对侧航路。
+    def test_map_appends_opposite_point_after_rejected_area_click(self):  # 模拟陆地占领点不接受航点时仍把对侧点追加为最后的目标点。
         map_overview = Box(100, 100, 800, 600, name="Map-Overview")  # 使用非零地图起点验证对侧坐标计算。
         cursor = Box(195, 195, 10, 10, name="My-Ship-Cursor")  # 本舰中心为二百乘二百，对侧应为八百乘六百。
-        for letter in "ABCD":  # 四种占领区都需要先设置备用航点。
+        for letter in "ABCD":  # 四种占领区都验证追加顺序。
             with self.subTest(area=letter):  # 标出出现回归的占领区字母。
                 area = Box(300, 300, 10, 10, confidence=0.95, name=f"Area-{letter}")  # 模拟被识别出来但实际位于陆地的目标。
                 route = []  # 保存模拟游戏当前接受的航路。
-                events = MagicMock()  # 记录两次点击与关闭地图的先后顺序。
+                events = MagicMock()  # 记录按住 Shift、点击与关闭地图的先后顺序。
                 def accept_water_only(*args, **kwargs):  # 模拟游戏仅接受对侧水面位置，忽略陆地点选。
-                    if kwargs.get("name") == "opposite-map-side":  # 第一跳模拟为可通航水面。
-                        route[:] = args  # 设置航路，后续陆地点击不清除它。
-                with patch.object(self.task, "wait_until", return_value=True), patch.object(self.task, "next_frame"), patch.object(self.task, "get_box_by_name", return_value=map_overview), patch.object(self.task, "_find_rotated_ship_cursor", return_value=cursor), patch.object(self.task, "_find_area", side_effect=lambda name, box: (area, "gray") if name == area.name else (None, None)), patch.object(self.task, "find_one", return_value=None), patch.object(self.task, "click", side_effect=accept_water_only) as click, patch.object(self.task, "_close_map") as close, patch.object(self.task, "log_info"):  # 仅运行真实导航决策，不向游戏发送输入。
+                    if kwargs.get("name") == "opposite-map-side":  # 只有对侧点模拟为可通航水面。
+                        route[:] = args  # 设置航路，验证陆地点选没有覆盖它。
+                with patch.object(self.task, "wait_until", return_value=True), patch.object(self.task, "next_frame"), patch.object(self.task, "get_box_by_name", return_value=map_overview), patch.object(self.task, "_find_rotated_ship_cursor", return_value=cursor), patch.object(self.task, "_find_area", side_effect=lambda name, box: (area, "gray") if name == area.name else (None, None)), patch.object(self.task, "find_one", return_value=None), patch.object(self.task, "send_key_down") as key_down, patch.object(self.task, "send_key_up") as key_up, patch.object(self.task, "click", side_effect=accept_water_only) as click, patch.object(self.task, "_close_map") as close, patch.object(self.task, "log_info"):  # 仅运行真实导航决策，不向游戏发送输入。
+                    events.attach_mock(key_down, "send_key_down")  # 捕获按住 Shift 的顺序。
                     events.attach_mock(click, "click")  # 捕获点击顺序及等待参数。
-                    events.attach_mock(close, "close")  # 确认两次点选完成后才关图。
+                    events.attach_mock(key_up, "send_key_up")  # 捕获释放 Shift 的顺序。
+                    events.attach_mock(close, "close")  # 确认按住 Shift 的选点完成后才关图。
                     self.assertTrue(self.task._handle_map())  # 导航流程仍应正常完成。
-                self.assertEqual([800, 600], route)  # 陆地目标无效时仍保留对侧航路。
-                self.assertEqual([call.click(800, 600, name="opposite-map-side", after_sleep=3), call.click(area, after_sleep=3), call.close()], events.mock_calls)  # 严格验证先对侧、再目标、最后关图且两次点击后均等待。
+                self.assertEqual([800, 600], route)  # 陆地目标无效时仍由对侧点提供有效航路。
+                self.assertEqual([call.send_key_down("shift", after_sleep=0.5), call.click(area, after_sleep=3), call.click(800, 600, name="opposite-map-side", after_sleep=3), call.send_key_up("shift", after_sleep=1), call.close()], events.mock_calls)  # 严格验证先按住 Shift 点占领区、再追加对侧、最后释放并关图。
 
     @unittest.skipUnless(all(os.path.isfile(os.path.join("ok_templates", "21x9", f"{name}.png")) for name in (14, 17, 19)), "Rotated cursor reference screenshots are not available.")  # 仅在三张地图参考截图齐全时运行旋转匹配验证。
     def test_rotated_ship_cursor_matches_reference_maps(self):  # 验证不同朝向的舰船光标都能通过旋转模板识别。
